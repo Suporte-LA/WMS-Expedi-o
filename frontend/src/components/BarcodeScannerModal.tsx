@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
-import { NotFoundException } from "@zxing/library";
+import { BarcodeFormat, DecodeHintType, NotFoundException } from "@zxing/library";
 
 type Props = {
   open: boolean;
@@ -13,11 +13,42 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  function signalDetected() {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+      gain.gain.setValueAtTime(0.12, audioContext.currentTime);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.08);
+      navigator.vibrate?.(120);
+    } catch {
+      // Ignore audio feedback errors on restricted browsers.
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
     if (!videoRef.current) return;
 
-    const codeReader = new BrowserMultiFormatReader();
+    const hints = new Map<DecodeHintType, any>();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.ITF,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.CODABAR,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E,
+      BarcodeFormat.QR_CODE
+    ]);
+
+    const codeReader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 120 });
     let controls: IScannerControls | null = null;
     let permissionStream: MediaStream | null = null;
     let active = true;
@@ -44,18 +75,36 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
         // Garante prompt de permissao antes de iniciar leitura de codigo.
         permissionStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: "environment" } }
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
         });
-        const track = permissionStream.getVideoTracks()[0];
-        const deviceId = track?.getSettings().deviceId;
         permissionStream.getTracks().forEach((t) => t.stop());
         permissionStream = null;
 
-        controls = await codeReader.decodeFromVideoDevice(deviceId, videoRef.current!, (result, err) => {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter((d) => d.kind === "videoinput");
+        const rearCamera =
+          cameras.find((d) => /back|rear|environment|traseira/i.test(d.label)) || cameras[0];
+
+        controls = await codeReader.decodeFromConstraints(
+          {
+            audio: false,
+            video: rearCamera?.deviceId
+              ? {
+                  deviceId: { exact: rearCamera.deviceId },
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 }
+                }
+              : { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+          },
+          videoRef.current!,
+          (result, err) => {
           if (result && active) {
             active = false;
             const value = result.getText().trim();
-            if (value) onDetected(value);
+            if (value) {
+              signalDetected();
+              onDetected(value);
+            }
             controls?.stop();
             onClose();
           }
@@ -100,6 +149,7 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
         </div>
         <video ref={videoRef} className="w-full rounded-xl bg-black" autoPlay muted playsInline />
         {loading && <p className="text-sm text-slate-500">Iniciando camera...</p>}
+        {!loading && !error && <p className="text-sm text-slate-500">Aponte para o codigo de barras do pedido.</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
       </div>
     </div>
