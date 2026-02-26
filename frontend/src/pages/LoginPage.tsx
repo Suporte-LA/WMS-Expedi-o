@@ -17,7 +17,10 @@ export function LoginPage({ onLogin }: { onLogin: (user: User) => void }) {
     setError("");
     setLoading(true);
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/login", {
+        email: email.trim().toLowerCase(),
+        password: password.trim()
+      });
       setAuth(data.token, data.user as User);
       onLogin(data.user as User);
       navigate("/");
