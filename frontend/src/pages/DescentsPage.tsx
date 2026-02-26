@@ -138,12 +138,20 @@ export function DescentsPage({ user }: { user: User }) {
               value={workDate}
               onChange={(e) => setWorkDate(e.target.value)}
             />
-            <input
-              className="border rounded-xl px-3 py-2 md:col-span-3"
-              type="file"
-              accept="image/*"
-              onChange={(e) => setImage(e.target.files?.[0] || null)}
-            />
+            <div className="md:col-span-3 flex items-center gap-2">
+              <input
+                id="descent-photo"
+                className="hidden"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => setImage(e.target.files?.[0] || null)}
+              />
+              <label htmlFor="descent-photo" className="rounded-xl border px-3 py-2 cursor-pointer whitespace-nowrap">
+                Tirar foto
+              </label>
+              <span className="text-sm text-slate-500 truncate">{image?.name || "Nenhuma foto selecionada"}</span>
+            </div>
           </div>
 
           <div className="grid md:grid-cols-4 gap-3">

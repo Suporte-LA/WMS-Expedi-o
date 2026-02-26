@@ -36,17 +36,8 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
     if (!videoRef.current) return;
 
     const hints = new Map<DecodeHintType, any>();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-      BarcodeFormat.CODE_128,
-      BarcodeFormat.ITF,
-      BarcodeFormat.CODE_39,
-      BarcodeFormat.CODABAR,
-      BarcodeFormat.EAN_13,
-      BarcodeFormat.EAN_8,
-      BarcodeFormat.UPC_A,
-      BarcodeFormat.UPC_E,
-      BarcodeFormat.QR_CODE
-    ]);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]);
+    hints.set(DecodeHintType.TRY_HARDER, true);
 
     const codeReader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 120 });
     let controls: IScannerControls | null = null;

@@ -114,7 +114,20 @@ export function ErrorCheckPage({ user }: { user: User }) {
               <option value="false">Finalizado: Nao</option>
               <option value="true">Finalizado: Sim</option>
             </select>
-            <input type="file" accept="image/*" onChange={(e) => setImage(e.target.files?.[0] || null)} />
+            <div className="flex items-center gap-2">
+              <input
+                id="error-photo"
+                className="hidden"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => setImage(e.target.files?.[0] || null)}
+              />
+              <label htmlFor="error-photo" className="rounded-xl border px-3 py-2 cursor-pointer whitespace-nowrap">
+                Tirar foto
+              </label>
+              <span className="text-sm text-slate-500 truncate">{image?.name || "Nenhuma foto selecionada"}</span>
+            </div>
             <input className="border rounded-xl px-3 py-2" type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
           </div>
 
