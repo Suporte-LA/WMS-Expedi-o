@@ -59,20 +59,6 @@ descentsRouter.post(
       [normalizedOrder]
     );
     const orderInfo = catalog.rows[0];
-    if (!orderInfo) {
-      return res.status(400).json({ message: "Pedido nao encontrado na Base. Preencha a base antes de registrar." });
-    }
-    if (
-      !orderInfo.lot ||
-      orderInfo.volume === null ||
-      orderInfo.weight_kg === null ||
-      !orderInfo.route ||
-      !orderInfo.description
-    ) {
-      return res.status(400).json({
-        message: "Cadastro da Base incompleto para este pedido (lote, volume, peso, rota e descricao obrigatorios)."
-      });
-    }
 
     const result = await pool.query(
       `

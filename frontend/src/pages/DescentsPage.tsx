@@ -25,19 +25,6 @@ export function DescentsPage({ user }: { user: User }) {
     return digits || value.trim();
   }
 
-  function hasCompleteOrderInfo(info: OrderCatalogRecord | null) {
-    if (!info) return false;
-    return Boolean(
-      info.lot &&
-        info.route &&
-        info.description &&
-        info.volume !== null &&
-        info.volume !== undefined &&
-        info.weight_kg !== null &&
-        info.weight_kg !== undefined
-    );
-  }
-
   async function loadRecent() {
     const list = await api.get(`/descents?page=1&pageSize=30`);
     setRecords(list.data.items || []);
@@ -88,11 +75,6 @@ export function DescentsPage({ user }: { user: User }) {
       setError("Foto do produto e obrigatoria.");
       return;
     }
-    if (!hasCompleteOrderInfo(orderInfo)) {
-      setError("Preencha a Base deste pedido antes de registrar (lote, quantidade, peso, rota e descricao).");
-      return;
-    }
-
     setLoading(true);
     try {
       const form = new FormData();
@@ -166,7 +148,7 @@ export function DescentsPage({ user }: { user: User }) {
           <button
             type="submit"
             className="rounded-xl bg-teal-700 text-white px-5 py-2 font-semibold disabled:opacity-50"
-            disabled={loading || !hasCompleteOrderInfo(orderInfo) || !image || !workDate || !orderNumber.trim()}
+            disabled={loading || !image || !workDate || !orderNumber.trim()}
           >
             {loading ? "Salvando..." : "Registrar descida"}
           </button>
@@ -175,8 +157,8 @@ export function DescentsPage({ user }: { user: User }) {
           {!orderInfo && orderNumber && (
             <p className="text-sm text-amber-700">Pedido sem base cadastrada para lote/peso/volume/rota/descricao.</p>
           )}
-          {orderInfo && !hasCompleteOrderInfo(orderInfo) && (
-            <p className="text-sm text-amber-700">Base incompleta para esse pedido. Complete os campos obrigatorios.</p>
+          {orderInfo && (
+            <p className="text-sm text-slate-600">Dados de base preenchidos automaticamente quando disponiveis.</p>
           )}
           {!image && <p className="text-sm text-amber-700">Foto obrigatoria para registrar descida.</p>}
         </form>
