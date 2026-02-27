@@ -12,6 +12,8 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   const [penColor, setPenColor] = useState("Blue");
   const [error, setError] = useState("");
   const [roleDrafts, setRoleDrafts] = useState<Record<string, Role>>({});
+  const [colorDrafts, setColorDrafts] = useState<Record<string, string>>({});
+  const [savingUserId, setSavingUserId] = useState<string | null>(null);
 
   const isAdmin = currentUser.role === "admin";
 
@@ -21,10 +23,13 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
     const items = (data.items || []) as User[];
     setUsers(items);
     const drafts: Record<string, Role> = {};
+    const colors: Record<string, string> = {};
     items.forEach((u) => {
       drafts[u.id] = u.role;
+      colors[u.id] = u.pen_color || "Blue";
     });
     setRoleDrafts(drafts);
+    setColorDrafts(colors);
   }
 
   useEffect(() => {
@@ -74,16 +79,20 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
     await loadUsers();
   }
 
-  async function saveColor(user: User, color: string) {
-    await api.patch(`/users/${user.id}`, { pen_color: color });
-    await loadUsers();
-  }
-
-  async function saveRole(user: User) {
+  async function saveUser(user: User) {
     const nextRole = roleDrafts[user.id];
-    if (!nextRole || nextRole === user.role) return;
-    await api.patch(`/users/${user.id}`, { role: nextRole });
-    await loadUsers();
+    const nextColor = (colorDrafts[user.id] || "").trim();
+    if (!nextRole) return;
+    if (nextRole === user.role && nextColor === (user.pen_color || "")) return;
+    setSavingUserId(user.id);
+    try {
+      await api.patch(`/users/${user.id}`, { role: nextRole, pen_color: nextColor || user.pen_color });
+      await loadUsers();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao salvar usuario.");
+    } finally {
+      setSavingUserId(null);
+    }
   }
 
   if (!isAdmin) {
@@ -137,37 +146,36 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                 <td className="py-2">{u.name}</td>
                 <td>{u.email}</td>
                 <td>
-                  <div className="flex gap-2 items-center">
-                    <select
-                      className="border rounded-lg px-2 py-1"
-                      value={roleDrafts[u.id] || u.role}
-                      onChange={(e) =>
-                        setRoleDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Role }))
-                      }
-                    >
-                      <option value="admin">admin</option>
-                      <option value="supervisor">supervisor</option>
-                      <option value="operator">operator</option>
-                      <option value="conferente">conferente</option>
-                    </select>
-                    <button className="underline text-xs" onClick={() => saveRole(u)}>
-                      salvar
-                    </button>
-                  </div>
+                  <select
+                    className="border rounded-lg px-2 py-1"
+                    value={roleDrafts[u.id] || u.role}
+                    onChange={(e) =>
+                      setRoleDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Role }))
+                    }
+                  >
+                    <option value="admin">admin</option>
+                    <option value="supervisor">supervisor</option>
+                    <option value="operator">operator</option>
+                    <option value="conferente">conferente</option>
+                  </select>
                 </td>
                 <td>
-                  <div className="flex gap-2 items-center">
-                    <span>{u.pen_color}</span>
-                    <button className="underline text-xs" onClick={() => saveColor(u, prompt("Nova cor da caneta:", u.pen_color) || u.pen_color)}>
-                      editar
-                    </button>
-                  </div>
+                  <input
+                    className="border rounded-lg px-2 py-1 w-28"
+                    value={colorDrafts[u.id] || ""}
+                    onChange={(e) => setColorDrafts((prev) => ({ ...prev, [u.id]: e.target.value }))}
+                  />
                 </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>
                 <td>
-                  <button className="underline" onClick={() => toggleActive(u)}>
-                    {u.is_active ? "Desativar" : "Ativar"}
-                  </button>
+                  <div className="flex gap-3 items-center">
+                    <button className="underline" onClick={() => saveUser(u)} disabled={savingUserId === u.id}>
+                      {savingUserId === u.id ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button className="underline" onClick={() => toggleActive(u)}>
+                      {u.is_active ? "Desativar" : "Ativar"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
