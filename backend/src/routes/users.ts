@@ -23,7 +23,7 @@ const updateUserSchema = z.object({
 
 export const usersRouter = Router();
 
-usersRouter.get("/", authRequired, requireRole(["admin"]), async (_req, res) => {
+usersRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async (_req, res) => {
   const users = await pool.query(
     `
       SELECT id, name, email, role, is_active, created_at, pen_color
@@ -34,7 +34,7 @@ usersRouter.get("/", authRequired, requireRole(["admin"]), async (_req, res) => 
   return res.json({ items: users.rows });
 });
 
-usersRouter.post("/", authRequired, requireRole(["admin"]), async (req: AuthenticatedRequest, res) => {
+usersRouter.post("/", authRequired, requireRole(["admin", "supervisor"]), async (req: AuthenticatedRequest, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -66,7 +66,7 @@ usersRouter.post("/", authRequired, requireRole(["admin"]), async (req: Authenti
   return res.status(201).json(result.rows[0]);
 });
 
-usersRouter.patch("/:id", authRequired, requireRole(["admin"]), async (req: AuthenticatedRequest, res) => {
+usersRouter.patch("/:id", authRequired, requireRole(["admin", "supervisor"]), async (req: AuthenticatedRequest, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({

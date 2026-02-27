@@ -15,10 +15,10 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   const [colorDrafts, setColorDrafts] = useState<Record<string, string>>({});
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
 
-  const isAdmin = currentUser.role === "admin";
+  const canAccessUsers = currentUser.role === "admin" || currentUser.role === "supervisor";
 
   async function loadUsers() {
-    if (!isAdmin) return;
+    if (!canAccessUsers) return;
     const { data } = await api.get("/users");
     const items = (data.items || []) as User[];
     setUsers(items);
@@ -95,8 +95,8 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
     }
   }
 
-  if (!isAdmin) {
-    return <p className="text-sm text-slate-600">Somente administradores acessam esta area.</p>;
+  if (!canAccessUsers) {
+    return <p className="text-sm text-slate-600">Voce nao tem acesso a esta area.</p>;
   }
 
   return (
