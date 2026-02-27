@@ -14,6 +14,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   const [roleDrafts, setRoleDrafts] = useState<Record<string, Role>>({});
   const [colorDrafts, setColorDrafts] = useState<Record<string, string>>({});
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
+  const [listMode, setListMode] = useState<"active" | "inactive">("active");
 
   const canAccessUsers = currentUser.role === "admin" || currentUser.role === "supervisor";
 
@@ -99,6 +100,10 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
     return <p className="text-sm text-slate-600">Voce nao tem acesso a esta area.</p>;
   }
 
+  const shownUsers = users.filter((u) => (listMode === "active" ? u.is_active : !u.is_active));
+  const activeCount = users.filter((u) => u.is_active).length;
+  const inactiveCount = users.length - activeCount;
+
   return (
     <section className="space-y-4">
       <form onSubmit={onCreate} className="bg-white rounded-2xl p-4 shadow-sm grid md:grid-cols-6 gap-3">
@@ -128,7 +133,25 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
       </form>
 
       <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
-        <h2 className="font-semibold mb-3">Usuarios</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold">Usuarios</h2>
+          <div className="flex gap-2">
+            <button
+              className={`rounded-lg px-3 py-1 text-sm border ${listMode === "active" ? "bg-slate-900 text-white" : "bg-white"}`}
+              onClick={() => setListMode("active")}
+              type="button"
+            >
+              Ativos ({activeCount})
+            </button>
+            <button
+              className={`rounded-lg px-3 py-1 text-sm border ${listMode === "inactive" ? "bg-slate-900 text-white" : "bg-white"}`}
+              onClick={() => setListMode("inactive")}
+              type="button"
+            >
+              Inativos ({inactiveCount})
+            </button>
+          </div>
+        </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left border-b">
@@ -141,7 +164,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {shownUsers.map((u) => (
               <tr key={u.id} className="border-b">
                 <td className="py-2">{u.name}</td>
                 <td>{u.email}</td>
@@ -179,6 +202,13 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                 </td>
               </tr>
             ))}
+            {!shownUsers.length && (
+              <tr>
+                <td className="py-3 text-slate-500" colSpan={6}>
+                  Nenhum usuario {listMode === "active" ? "ativo" : "inativo"}.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
