@@ -95,18 +95,23 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   const location = useLocation();
   const nav = useMemo(() => buildNav(user.role, permissions), [user.role, permissions]);
   const defaultRoute = defaultRouteFor(user.role, permissions);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen">
-      <header className="bg-slate-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-4 justify-between">
+      <header className="app-header !bg-slate-900 !text-white" style={{ backgroundColor: "#0f172a", color: "#ffffff" }}>
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div>
             <p className="font-bold">KPI Operacional</p>
             <p className="text-xs text-slate-300">
               {user.name} ({user.role})
             </p>
           </div>
-          <nav className="flex gap-2">
+          <nav className="hidden md:flex gap-2">
             {nav.map((item) => (
               <Link
                 key={item.to}
@@ -119,11 +124,55 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               </Link>
             ))}
           </nav>
-          <button onClick={onLogout} className="text-sm underline">
+          <button onClick={onLogout} className="hidden md:inline text-sm underline">
             Sair
+          </button>
+          <button
+            type="button"
+            className="md:hidden rounded-lg border border-slate-600 px-3 py-1 text-sm"
+            onClick={() => setMobileMenuOpen(true)}
+            aria-label="Abrir menu"
+          >
+            ☰
           </button>
         </div>
       </header>
+
+      {mobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)} />
+          <aside
+            className="absolute left-0 top-0 h-full w-72 bg-slate-900 text-white p-4 space-y-4 shadow-xl"
+            style={{ backgroundColor: "#0f172a", color: "#ffffff" }}
+          >
+            <div className="flex items-center justify-between">
+              <p className="font-bold">Menu</p>
+              <button type="button" className="rounded border border-slate-600 px-2 py-1 text-xs" onClick={() => setMobileMenuOpen(false)}>
+                Fechar
+              </button>
+            </div>
+            <div className="space-y-2">
+              {nav.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={`block rounded-lg px-3 py-2 text-sm ${
+                    location.pathname === item.to ? "bg-teal-700" : "bg-slate-800"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+            <button
+              onClick={onLogout}
+              className="w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-left"
+            >
+              Sair
+            </button>
+          </aside>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto p-4">
         {nav.length === 0 && user.role !== "admin" ? (

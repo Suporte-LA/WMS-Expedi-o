@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --bg: #f4f7fb;
   --paper: #ffffff;
   --ink: #0f172a;
@@ -19,4 +20,13 @@ body {
   background: radial-gradient(circle at 10% 0%, #e0f2fe, transparent 40%), var(--bg);
   color: var(--ink);
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+html,
+body {
+  color-scheme: light;
+}
+
+.app-header {
+  forced-color-adjust: none;
 }
