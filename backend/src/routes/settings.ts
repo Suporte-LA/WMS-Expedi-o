@@ -22,7 +22,58 @@ const updateSchema = z.object({
 
 export const settingsRouter = Router();
 
+const DEFAULT_PERMISSIONS: Array<{ role: Role; screen_key: Screen; is_enabled: boolean }> = [
+  { role: "admin", screen_key: "dashboard", is_enabled: true },
+  { role: "admin", screen_key: "descents", is_enabled: true },
+  { role: "admin", screen_key: "error-check", is_enabled: true },
+  { role: "admin", screen_key: "error-reports", is_enabled: true },
+  { role: "admin", screen_key: "imports", is_enabled: true },
+  { role: "admin", screen_key: "users", is_enabled: true },
+  { role: "supervisor", screen_key: "dashboard", is_enabled: true },
+  { role: "supervisor", screen_key: "descents", is_enabled: true },
+  { role: "supervisor", screen_key: "error-check", is_enabled: true },
+  { role: "supervisor", screen_key: "error-reports", is_enabled: true },
+  { role: "supervisor", screen_key: "imports", is_enabled: false },
+  { role: "supervisor", screen_key: "users", is_enabled: true },
+  { role: "operator", screen_key: "dashboard", is_enabled: false },
+  { role: "operator", screen_key: "descents", is_enabled: true },
+  { role: "operator", screen_key: "error-check", is_enabled: false },
+  { role: "operator", screen_key: "error-reports", is_enabled: false },
+  { role: "operator", screen_key: "imports", is_enabled: false },
+  { role: "operator", screen_key: "users", is_enabled: false },
+  { role: "conferente", screen_key: "dashboard", is_enabled: false },
+  { role: "conferente", screen_key: "descents", is_enabled: false },
+  { role: "conferente", screen_key: "error-check", is_enabled: true },
+  { role: "conferente", screen_key: "error-reports", is_enabled: false },
+  { role: "conferente", screen_key: "imports", is_enabled: false },
+  { role: "conferente", screen_key: "users", is_enabled: false }
+];
+
+async function ensureSettingsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS role_screen_permissions (
+      role role_type NOT NULL,
+      screen_key text NOT NULL,
+      is_enabled boolean NOT NULL DEFAULT false,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (role, screen_key)
+    )
+  `);
+
+  for (const item of DEFAULT_PERMISSIONS) {
+    await pool.query(
+      `
+        INSERT INTO role_screen_permissions (role, screen_key, is_enabled)
+        VALUES ($1::role_type, $2, $3)
+        ON CONFLICT (role, screen_key) DO NOTHING
+      `,
+      [item.role, item.screen_key, item.is_enabled]
+    );
+  }
+}
+
 settingsRouter.get("/access", authRequired, async (_req, res) => {
+  await ensureSettingsTable();
   const result = await pool.query(
     `
       SELECT role, screen_key, is_enabled
@@ -82,6 +133,7 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
 });
 
 settingsRouter.put("/access", authRequired, requireRole(["admin"]), async (req: AuthenticatedRequest, res) => {
+  await ensureSettingsTable();
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Payload invalido." });
