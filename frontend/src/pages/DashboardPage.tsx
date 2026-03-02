@@ -1,8 +1,8 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { format } from "date-fns";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from "recharts";
-import { api } from "../lib/api";
+import { api, buildApiUrl } from "../lib/api";
 
 type CardData = {
   total_orders: string;
@@ -124,10 +124,10 @@ export function DashboardPage() {
     loadData();
   }
 
-  function exportCsv() {
-    const params = new URLSearchParams({ from, to, export: "csv" });
+  function exportXlsx() {
+    const params = new URLSearchParams({ from, to, export: "xlsx" });
     if (user) params.set("user", user);
-    window.open(`/api/kpi?${params.toString()}`, "_blank");
+    window.open(buildApiUrl(`/kpi?${params.toString()}`), "_blank");
   }
 
   return (
@@ -137,8 +137,8 @@ export function DashboardPage() {
           <button type="submit" className="rounded-lg border border-cyan-500 text-cyan-700 px-3 py-1">
             Atualizar
           </button>
-          <button type="button" onClick={exportCsv} className="rounded-lg border border-amber-500 text-amber-700 px-3 py-1">
-            Exportar CSV
+          <button type="button" onClick={exportXlsx} className="rounded-lg border border-amber-500 text-amber-700 px-3 py-1">
+            Exportar XLSX
           </button>
         </div>
 

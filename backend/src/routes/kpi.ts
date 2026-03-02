@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db.js";
 import { authRequired, requireRole } from "../middleware/auth.js";
+import XLSX from "xlsx";
 
 const kpiQuerySchema = z.object({
   from: z.string().min(1),
@@ -9,7 +10,7 @@ const kpiQuerySchema = z.object({
   user: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  export: z.enum(["csv"]).optional()
+  export: z.enum(["csv", "xlsx"]).optional()
 });
 
 const rankingSchema = z.object({
@@ -72,26 +73,45 @@ kpiRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async (re
 
   const [totals, trend] = await Promise.all([pool.query(totalsSql, params), pool.query(trendSql, params)]);
 
-  if (exportType === "csv") {
-    const csvRows = await pool.query(
+  if (exportType === "csv" || exportType === "xlsx") {
+    const exportRows = await pool.query(
       `
-      SELECT user_name, work_date, orders_count, boxes_count, weight_kg
-      FROM kpi_daily
-      WHERE work_date BETWEEN $1::date AND $2::date
-      ${userFilter}
-      ORDER BY work_date DESC, user_name ASC
-    `,
+        SELECT user_name, work_date, orders_count, boxes_count, weight_kg
+        FROM kpi_daily
+        WHERE work_date BETWEEN $1::date AND $2::date
+        ${userFilter}
+        ORDER BY work_date DESC, user_name ASC
+      `,
       params
     );
 
-    const header = "Usuario,Data,Pedidos,Caixas,PesoKG";
-    const lines = csvRows.rows.map((r) =>
-      [r.user_name, r.work_date.toISOString().slice(0, 10), r.orders_count, r.boxes_count, r.weight_kg].join(",")
-    );
-    const csv = [header, ...lines].join("\n");
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", "attachment; filename=kpi_export.csv");
-    return res.status(200).send(csv);
+    if (exportType === "csv") {
+      const header = "Usuario,Data,Pedidos,Caixas,PesoKG";
+      const lines = exportRows.rows.map((r) =>
+        [r.user_name, r.work_date.toISOString().slice(0, 10), r.orders_count, r.boxes_count, r.weight_kg].join(",")
+      );
+      const csv = [header, ...lines].join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", "attachment; filename=kpi_export.csv");
+      return res.status(200).send(csv);
+    }
+
+    const worksheetRows = exportRows.rows.map((r) => ({
+      Usuario: r.user_name,
+      Data: r.work_date.toISOString().slice(0, 10),
+      Pedidos: r.orders_count,
+      Caixas: r.boxes_count,
+      PesoKG: Number(r.weight_kg)
+    }));
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(worksheetRows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "KPI");
+    const file = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=kpi_export.xlsx");
+    return res.status(200).send(file);
   }
 
   const list = await pool.query(listSql, [...params, pageSize, offset]);

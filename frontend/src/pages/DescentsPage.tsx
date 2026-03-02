@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { api } from "../lib/api";
+import { api, buildApiUrl } from "../lib/api";
 import type { DescentRecord, OrderCatalogRecord, User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
 
@@ -192,7 +192,7 @@ export function DescentsPage({ user }: { user: User }) {
                   <td>{item.pen_color}</td>
                   <td>
                     {item.product_image_path ? (
-                      <a className="underline" href={`/api${item.product_image_path}`} target="_blank" rel="noreferrer">
+                      <a className="underline" href={buildApiUrl(item.product_image_path)} target="_blank" rel="noreferrer">
                         abrir
                       </a>
                     ) : (
