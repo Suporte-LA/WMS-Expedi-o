@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { authRequired, AuthenticatedRequest, requireRole } from "../middleware/auth.js";
+import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
 import { imageUpload } from "../services/uploads.js";
 import { pool } from "../db.js";
 import { writeAuditLog } from "../services/audit.js";
@@ -26,7 +26,7 @@ function normalizeOrderNumber(value: string): string {
 errorsRouter.post(
   "/",
   authRequired,
-  requireRole(["admin", "supervisor", "conferente"]),
+  requireScreenAccess("error-check"),
   imageUpload.single("image"),
   async (req: AuthenticatedRequest, res) => {
   const parsed = createSchema.safeParse(req.body);
@@ -98,7 +98,7 @@ errorsRouter.post(
   }
 );
 
-errorsRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async (req, res) => {
+errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async (req, res) => {
   const parsed = z
     .object({
       from: z.string().optional(),
@@ -204,7 +204,7 @@ errorsRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async 
   return res.json({ items: result.rows, page, pageSize });
 });
 
-errorsRouter.get("/dashboard", authRequired, requireRole(["admin", "supervisor"]), async (req, res) => {
+errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"), async (req, res) => {
   const parsed = z
     .object({
       from: z.string(),

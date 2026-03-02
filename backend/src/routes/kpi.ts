@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db.js";
-import { authRequired, requireRole } from "../middleware/auth.js";
+import { authRequired, requireScreenAccess } from "../middleware/auth.js";
 import XLSX from "xlsx";
 
 const kpiQuerySchema = z.object({
@@ -74,7 +74,7 @@ function combinedCte() {
   `;
 }
 
-kpiRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async (req, res) => {
+kpiRouter.get("/", authRequired, requireScreenAccess("dashboard"), async (req, res) => {
   const parsed = kpiQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ message: "Query invalida." });
@@ -182,7 +182,7 @@ kpiRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async (re
   });
 });
 
-kpiRouter.get("/ranking", authRequired, requireRole(["admin", "supervisor"]), async (req, res) => {
+kpiRouter.get("/ranking", authRequired, requireScreenAccess("dashboard"), async (req, res) => {
   const parsed = rankingSchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ message: "Query invalida." });

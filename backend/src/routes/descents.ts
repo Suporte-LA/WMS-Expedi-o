@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { authRequired, AuthenticatedRequest, requireRole } from "../middleware/auth.js";
+import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
 import { pool } from "../db.js";
 import { imageUpload } from "../services/uploads.js";
 import { writeAuditLog } from "../services/audit.js";
@@ -29,7 +29,7 @@ function normalizeOrderNumber(value: string): string {
 descentsRouter.post(
   "/",
   authRequired,
-  requireRole(["admin", "supervisor", "operator"]),
+  requireScreenAccess("descents"),
   imageUpload.single("image"),
   async (req: AuthenticatedRequest, res) => {
     const parsed = createSchema.safeParse(req.body);
@@ -101,7 +101,7 @@ descentsRouter.post(
   }
 );
 
-descentsRouter.get("/", authRequired, requireRole(["admin", "supervisor", "operator"]), async (req, res) => {
+descentsRouter.get("/", authRequired, requireScreenAccess("descents"), async (req, res) => {
   const parsed = listSchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ message: "Query invalida." });
@@ -147,7 +147,7 @@ descentsRouter.get("/", authRequired, requireRole(["admin", "supervisor", "opera
   return res.json({ items: result.rows, page, pageSize });
 });
 
-descentsRouter.get("/dashboard", authRequired, requireRole(["admin", "supervisor", "operator"]), async (req, res) => {
+descentsRouter.get("/dashboard", authRequired, requireScreenAccess("descents"), async (req, res) => {
   const parsed = z
     .object({
       from: z.string(),
@@ -200,7 +200,7 @@ descentsRouter.get("/dashboard", authRequired, requireRole(["admin", "supervisor
   });
 });
 
-descentsRouter.get("/lookup/:orderNumber", authRequired, requireRole(["admin", "supervisor", "conferente"]), async (req, res) => {
+descentsRouter.get("/lookup/:orderNumber", authRequired, requireScreenAccess("error-check"), async (req, res) => {
   const result = await pool.query(
     `
       SELECT id, order_number, descended_by_name, pen_color, work_date, created_at
@@ -219,7 +219,7 @@ descentsRouter.get("/lookup/:orderNumber", authRequired, requireRole(["admin", "
   return res.json(result.rows[0]);
 });
 
-descentsRouter.get("/catalog/:orderNumber", authRequired, requireRole(["admin", "supervisor", "operator"]), async (req, res) => {
+descentsRouter.get("/catalog/:orderNumber", authRequired, requireScreenAccess("descents"), async (req, res) => {
   const result = await pool.query(
     `
       SELECT order_number, lot, volume, weight_kg, route, description, base_date

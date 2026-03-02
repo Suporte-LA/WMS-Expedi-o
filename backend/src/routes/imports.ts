@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { pool } from "../db.js";
-import { authRequired, AuthenticatedRequest, requireRole } from "../middleware/auth.js";
+import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
 import { writeAuditLog } from "../services/audit.js";
 import { parseKpiFile, parseOrderCatalogFile } from "../services/importParser.js";
 
@@ -163,7 +163,7 @@ async function consolidateDescentsFromCatalog(
 importsRouter.post(
   "/kpi",
   authRequired,
-  requireRole(["admin"]),
+  requireScreenAccess("imports"),
   upload.single("file"),
   async (req: AuthenticatedRequest, res) => {
     if (!req.file) {
@@ -318,7 +318,7 @@ importsRouter.post(
 importsRouter.post(
   "/base",
   authRequired,
-  requireRole(["admin"]),
+  requireScreenAccess("imports"),
   upload.single("file"),
   async (req: AuthenticatedRequest, res) => {
     if (!req.file) {
@@ -418,7 +418,7 @@ importsRouter.post(
   }
 );
 
-importsRouter.get("/", authRequired, requireRole(["admin"]), async (req, res) => {
+importsRouter.get("/", authRequired, requireScreenAccess("imports"), async (req, res) => {
   const parsed = querySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ message: "Query inválida." });
@@ -442,7 +442,7 @@ importsRouter.get("/", authRequired, requireRole(["admin"]), async (req, res) =>
   return res.json({ items: result.rows, page, pageSize });
 });
 
-importsRouter.get("/:id", authRequired, requireRole(["admin"]), async (req, res) => {
+importsRouter.get("/:id", authRequired, requireScreenAccess("imports"), async (req, res) => {
   const result = await pool.query(`SELECT * FROM imports WHERE id = $1`, [req.params.id]);
   if (!result.rowCount) {
     return res.status(404).json({ message: "Import não encontrado." });
