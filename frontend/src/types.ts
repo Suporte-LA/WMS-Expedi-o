@@ -1,5 +1,7 @@
 export type Role = "admin" | "supervisor" | "operator" | "conferente";
 
+export type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users";
+
 export type User = {
   id: string;
   name: string;
@@ -58,4 +60,10 @@ export type ErrorRecord = {
   pen_color?: string | null;
   descended_at?: string | null;
   created_at: string;
+};
+
+export type AccessSettings = {
+  roles: Role[];
+  screens: ScreenKey[];
+  permissions: Record<Role, Record<ScreenKey, boolean>>;
 };

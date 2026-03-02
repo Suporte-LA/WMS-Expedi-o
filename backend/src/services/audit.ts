@@ -8,7 +8,8 @@ type AuditAction =
   | "USER_CREATE"
   | "USER_UPDATE"
   | "DESCENT_CREATE"
-  | "ERROR_CREATE";
+  | "ERROR_CREATE"
+  | "SETTINGS_ACCESS_UPDATE";
 
 export async function writeAuditLog(params: {
   userId?: string | null;

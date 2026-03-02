@@ -1,8 +1,8 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./lib/api";
 import { clearAuth, getStoredUser, getToken } from "./lib/auth";
-import type { Role, User } from "./types";
+import type { AccessSettings, Role, ScreenKey, User } from "./types";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ImportsPage } from "./pages/ImportsPage";
@@ -10,43 +10,91 @@ import { UsersPage } from "./pages/UsersPage";
 import { DescentsPage } from "./pages/DescentsPage";
 import { ErrorCheckPage } from "./pages/ErrorCheckPage";
 import { ErrorReportsPage } from "./pages/ErrorReportsPage";
+import { ConfigurationsPage } from "./pages/ConfigurationsPage";
 
-type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users";
+type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/settings";
 
-type NavItem = { to: AppRoute; label: string };
+type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
-const NAV_BY_ROLE: Record<Role, NavItem[]> = {
-  admin: [
-    { to: "/", label: "Dashboard" },
-    { to: "/descents", label: "Descer Pedidos" },
-    { to: "/error-check", label: "Conferencia Erros" },
-    { to: "/error-reports", label: "Relatorio Erros" },
-    { to: "/imports", label: "Imports" },
-    { to: "/users", label: "Usuarios" }
-  ],
-  supervisor: [
-    { to: "/", label: "Dashboard" },
-    { to: "/descents", label: "Descer Pedidos" },
-    { to: "/error-check", label: "Conferencia Erros" },
-    { to: "/error-reports", label: "Relatorio Erros" },
-    { to: "/users", label: "Usuarios" }
-  ],
-  operator: [{ to: "/descents", label: "Descer Pedidos" }],
-  conferente: [{ to: "/error-check", label: "Conferencia Erros" }]
+const NAV_ITEMS: NavItem[] = [
+  { to: "/", label: "Dashboard", screen: "dashboard" },
+  { to: "/descents", label: "Descer Pedidos", screen: "descents" },
+  { to: "/error-check", label: "Conferencia Erros", screen: "error-check" },
+  { to: "/error-reports", label: "Relatorio Erros", screen: "error-reports" },
+  { to: "/imports", label: "Imports", screen: "imports" },
+  { to: "/users", label: "Usuarios", screen: "users" }
+];
+
+const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
+  "/": "dashboard",
+  "/descents": "descents",
+  "/error-check": "error-check",
+  "/error-reports": "error-reports",
+  "/imports": "imports",
+  "/users": "users"
 };
 
-function defaultRouteFor(role: Role): AppRoute {
-  return NAV_BY_ROLE[role][0].to;
+const DEFAULT_ACCESS: AccessSettings["permissions"] = {
+  admin: {
+    dashboard: true,
+    descents: true,
+    "error-check": true,
+    "error-reports": true,
+    imports: true,
+    users: true
+  },
+  supervisor: {
+    dashboard: true,
+    descents: true,
+    "error-check": true,
+    "error-reports": true,
+    imports: false,
+    users: true
+  },
+  operator: {
+    dashboard: false,
+    descents: true,
+    "error-check": false,
+    "error-reports": false,
+    imports: false,
+    users: false
+  },
+  conferente: {
+    dashboard: false,
+    descents: false,
+    "error-check": true,
+    "error-reports": false,
+    imports: false,
+    users: false
+  }
+};
+
+function buildNav(role: Role, permissions: AccessSettings["permissions"]): NavItem[] {
+  const base = NAV_ITEMS.filter((item) => (item.screen ? permissions[role][item.screen] : false));
+  if (role === "admin") {
+    base.push({ to: "/settings", label: "Configuracoes" });
+  }
+  return base;
 }
 
-function canAccess(role: Role, path: AppRoute): boolean {
-  return NAV_BY_ROLE[role].some((item) => item.to === path);
+function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"]): AppRoute {
+  const nav = buildNav(role, permissions);
+  if (nav.length) return nav[0].to;
+  if (role === "admin") return "/settings";
+  return "/descents";
 }
 
-function ProtectedLayout({ user, onLogout }: { user: User; onLogout: () => void }) {
+function canAccess(role: Role, path: AppRoute, permissions: AccessSettings["permissions"]): boolean {
+  if (path === "/settings") return role === "admin";
+  const screen = ROUTE_TO_SCREEN[path];
+  if (!screen) return false;
+  return Boolean(permissions[role][screen]);
+}
+
+function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout: () => void; permissions: AccessSettings["permissions"] }) {
   const location = useLocation();
-  const nav = useMemo(() => NAV_BY_ROLE[user.role], [user.role]);
-  const defaultRoute = defaultRouteFor(user.role);
+  const nav = useMemo(() => buildNav(user.role, permissions), [user.role, permissions]);
+  const defaultRoute = defaultRouteFor(user.role, permissions);
 
   return (
     <div className="min-h-screen">
@@ -78,33 +126,41 @@ function ProtectedLayout({ user, onLogout }: { user: User; onLogout: () => void 
       </header>
 
       <main className="max-w-7xl mx-auto p-4">
-        <Routes>
-          <Route
-            path="/"
-            element={canAccess(user.role, "/") ? <DashboardPage /> : <Navigate to={defaultRoute} replace />}
-          />
-          <Route
-            path="/descents"
-            element={canAccess(user.role, "/descents") ? <DescentsPage user={user} /> : <Navigate to={defaultRoute} replace />}
-          />
-          <Route
-            path="/error-check"
-            element={canAccess(user.role, "/error-check") ? <ErrorCheckPage user={user} /> : <Navigate to={defaultRoute} replace />}
-          />
-          <Route
-            path="/error-reports"
-            element={canAccess(user.role, "/error-reports") ? <ErrorReportsPage /> : <Navigate to={defaultRoute} replace />}
-          />
-          <Route
-            path="/imports"
-            element={canAccess(user.role, "/imports") ? <ImportsPage user={user} /> : <Navigate to={defaultRoute} replace />}
-          />
-          <Route
-            path="/users"
-            element={canAccess(user.role, "/users") ? <UsersPage currentUser={user} /> : <Navigate to={defaultRoute} replace />}
-          />
-          <Route path="*" element={<Navigate to={defaultRoute} replace />} />
-        </Routes>
+        {nav.length === 0 && user.role !== "admin" ? (
+          <p className="text-sm text-slate-600">Nenhuma tela liberada para este perfil no momento.</p>
+        ) : (
+          <Routes>
+            <Route
+              path="/"
+              element={canAccess(user.role, "/", permissions) ? <DashboardPage /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/descents"
+              element={canAccess(user.role, "/descents", permissions) ? <DescentsPage user={user} /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/error-check"
+              element={canAccess(user.role, "/error-check", permissions) ? <ErrorCheckPage user={user} /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/error-reports"
+              element={canAccess(user.role, "/error-reports", permissions) ? <ErrorReportsPage /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/imports"
+              element={canAccess(user.role, "/imports", permissions) ? <ImportsPage user={user} /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/users"
+              element={canAccess(user.role, "/users", permissions) ? <UsersPage currentUser={user} /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/settings"
+              element={canAccess(user.role, "/settings", permissions) ? <ConfigurationsPage currentUser={user} /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route path="*" element={<Navigate to={defaultRoute} replace />} />
+          </Routes>
+        )}
       </main>
     </div>
   );
@@ -114,6 +170,7 @@ export default function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(getStoredUser());
   const [checking, setChecking] = useState(true);
+  const [permissions, setPermissions] = useState<AccessSettings["permissions"]>(DEFAULT_ACCESS);
 
   useEffect(() => {
     async function validateSession() {
@@ -125,6 +182,14 @@ export default function App() {
       try {
         const { data } = await api.get("/auth/me");
         setUser(data.user);
+        try {
+          const settings = await api.get("/settings/access");
+          if (settings.data?.permissions) {
+            setPermissions(settings.data.permissions);
+          }
+        } catch {
+          setPermissions(DEFAULT_ACCESS);
+        }
       } catch {
         clearAuth();
         setUser(null);
@@ -134,6 +199,21 @@ export default function App() {
     }
     validateSession();
   }, []);
+
+  useEffect(() => {
+    async function loadPermissions() {
+      if (!user || !getToken()) return;
+      try {
+        const settings = await api.get("/settings/access");
+        if (settings.data?.permissions) {
+          setPermissions(settings.data.permissions);
+        }
+      } catch {
+        setPermissions(DEFAULT_ACCESS);
+      }
+    }
+    loadPermissions();
+  }, [user?.id]);
 
   function logout() {
     clearAuth();
@@ -154,5 +234,5 @@ export default function App() {
     );
   }
 
-  return <ProtectedLayout user={user} onLogout={logout} />;
+  return <ProtectedLayout user={user} onLogout={logout} permissions={permissions} />;
 }
