@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Pie, PieChart, ResponsiveContainer, Tooltip, Cell, BarChart, Bar, XAxis, YAxis } from "recharts";
-import { api } from "../lib/api";
+import { api, buildApiUrl } from "../lib/api";
 import type { ErrorRecord } from "../types";
 
 function isoToday() {
@@ -52,12 +52,39 @@ export function ErrorReportsPage() {
     await loadData();
   }
 
+  async function exportXlsx() {
+    try {
+      const params = new URLSearchParams({ from, to, export: "xlsx" });
+      const response = await api.get(`/errors?${params.toString()}`, { responseType: "blob" });
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "erros_export.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Falha ao exportar erros.");
+    }
+  }
+
   return (
     <section className="space-y-4">
-      <form onSubmit={onFilter} className="bg-white rounded-2xl p-4 shadow-sm grid md:grid-cols-3 gap-3">
+      <form onSubmit={onFilter} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex gap-2">
+          <button className="rounded-xl border border-slate-300 font-semibold px-4 py-2">Atualizar</button>
+          <button type="button" onClick={exportXlsx} className="rounded-xl border border-amber-500 text-amber-700 px-4 py-2 font-semibold">
+            Exportar XLSX
+          </button>
+        </div>
+        <div className="grid md:grid-cols-2 gap-3">
         <input className="border rounded-xl px-3 py-2" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input className="border rounded-xl px-3 py-2" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        <button className="rounded-xl border border-slate-300 font-semibold">Atualizar</button>
+        </div>
       </form>
 
       {error && <p className="text-sm text-red-700">{error}</p>}
@@ -116,7 +143,7 @@ export function ErrorReportsPage() {
                 <td>{item.report_date?.slice(0, 10)}</td>
                 <td>
                   {item.evidence_image_path ? (
-                    <a className="underline" href={`/api${item.evidence_image_path}`} target="_blank">
+                    <a className="underline" href={buildApiUrl(item.evidence_image_path)} target="_blank" rel="noreferrer">
                       abrir
                     </a>
                   ) : (

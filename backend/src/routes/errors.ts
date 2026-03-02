@@ -4,6 +4,7 @@ import { authRequired, AuthenticatedRequest, requireRole } from "../middleware/a
 import { imageUpload } from "../services/uploads.js";
 import { pool } from "../db.js";
 import { writeAuditLog } from "../services/audit.js";
+import XLSX from "xlsx";
 
 const createSchema = z.object({
   orderNumber: z.string().min(1),
@@ -105,6 +106,7 @@ errorsRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async 
       problemType: z.string().optional(),
       conferente: z.string().optional(),
       user: z.string().optional(),
+      export: z.enum(["xlsx"]).optional(),
       page: z.coerce.number().int().min(1).default(1),
       pageSize: z.coerce.number().int().min(1).max(200).default(30)
     })
@@ -114,7 +116,7 @@ errorsRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async 
     return res.status(400).json({ message: "Query invalida." });
   }
 
-  const { from, to, problemType, conferente, user, page, pageSize } = parsed.data;
+  const { from, to, problemType, conferente, user, export: exportType, page, pageSize } = parsed.data;
   const filters: string[] = [];
   const values: unknown[] = [];
 
@@ -143,6 +145,50 @@ errorsRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), async 
   const offset = (page - 1) * pageSize;
   values.push(pageSize);
   values.push(offset);
+
+  if (exportType === "xlsx") {
+    const exportRows = await pool.query(
+      `
+        SELECT
+          e.problem_type,
+          e.conferente_name,
+          e.order_number,
+          e.descended_user_name,
+          e.pen_color,
+          e.finalized,
+          e.dock,
+          e.report_date,
+          d.volume,
+          d.route
+        FROM error_reports e
+        LEFT JOIN descents d ON d.id = e.descent_id
+        ${where}
+        ORDER BY e.created_at DESC
+      `,
+      values.slice(0, values.length - 2)
+    );
+
+    const worksheetRows = exportRows.rows.map((r) => ({
+      Problema: r.problem_type,
+      Conferente: r.conferente_name,
+      Pedido: r.order_number,
+      UsuarioDesceu: r.descended_user_name || "",
+      CorCaneta: r.pen_color || "",
+      Finalizado: r.finalized ? "SIM" : "NAO",
+      Doca: r.dock || r.route || "",
+      Volume: r.volume ?? "",
+      Data: r.report_date?.toISOString?.().slice(0, 10) ?? String(r.report_date ?? "")
+    }));
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(worksheetRows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Erros");
+    const file = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=erros_export.xlsx");
+    return res.status(200).send(file);
+  }
 
   const result = await pool.query(
     `
