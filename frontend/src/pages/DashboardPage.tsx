@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { format } from "date-fns";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from "recharts";
-import { api, buildApiUrl } from "../lib/api";
+import { api } from "../lib/api";
 
 type CardData = {
   total_orders: string;
@@ -41,6 +41,13 @@ function isoDaysAgo(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function normalizeDateParam(value: string) {
+  const v = value.trim();
+  const br = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return v;
+}
+
 export function DashboardPage() {
   const [from, setFrom] = useState(isoDaysAgo(365));
   const [to, setTo] = useState(isoToday());
@@ -62,7 +69,9 @@ export function DashboardPage() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ from, to, page: String(page), pageSize: String(pageSize) });
+      const fromParam = normalizeDateParam(from);
+      const toParam = normalizeDateParam(to);
+      const params = new URLSearchParams({ from: fromParam, to: toParam, page: String(page), pageSize: String(pageSize) });
       if (user) params.set("user", user);
 
       const [kpi, orders, boxes, weight] = await Promise.all([
@@ -79,6 +88,12 @@ export function DashboardPage() {
       setRankingBoxes(boxes.data.items || []);
       setRankingWeight(weight.data.items || []);
     } catch (err: any) {
+      setCards(null);
+      setTrend([]);
+      setItems([]);
+      setRankingOrders([]);
+      setRankingBoxes([]);
+      setRankingWeight([]);
       setError(err?.response?.data?.message || "Erro ao carregar dashboard.");
     } finally {
       setLoading(false);
@@ -124,10 +139,27 @@ export function DashboardPage() {
     loadData();
   }
 
-  function exportXlsx() {
-    const params = new URLSearchParams({ from, to, export: "xlsx" });
+  async function exportXlsx() {
+    const fromParam = normalizeDateParam(from);
+    const toParam = normalizeDateParam(to);
+    const params = new URLSearchParams({ from: fromParam, to: toParam, export: "xlsx" });
     if (user) params.set("user", user);
-    window.open(buildApiUrl(`/kpi?${params.toString()}`), "_blank");
+    try {
+      const response = await api.get(`/kpi?${params.toString()}`, { responseType: "blob" });
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "kpi_export.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Falha ao exportar XLSX.");
+    }
   }
 
   return (
@@ -226,6 +258,13 @@ export function DashboardPage() {
                 <td>{format(new Date(row.work_date), "dd/MM/yyyy")}</td>
               </tr>
             ))}
+            {!filteredItems.length && (
+              <tr>
+                <td className="py-3 text-slate-500" colSpan={5}>
+                  Nenhum registro para o filtro selecionado.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
 
