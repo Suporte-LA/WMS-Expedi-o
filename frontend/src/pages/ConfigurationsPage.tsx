@@ -8,7 +8,8 @@ const SCREEN_LABELS: Record<ScreenKey, string> = {
   "error-check": "Conferencia Erros",
   "error-reports": "Relatorio Erros",
   imports: "Imports",
-  users: "Usuarios"
+  users: "Usuarios",
+  "montagem-sp": "Montagem SP"
 };
 
 const ROLE_LABELS: Record<Role, string> = {

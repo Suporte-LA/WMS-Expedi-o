@@ -5,7 +5,7 @@ import { pool } from "../db.js";
 import { writeAuditLog } from "../services/audit.js";
 
 const ROLES = ["admin", "supervisor", "operator", "conferente"] as const;
-const SCREENS = ["dashboard", "descents", "error-check", "error-reports", "imports", "users"] as const;
+const SCREENS = ["dashboard", "descents", "error-check", "error-reports", "imports", "users", "montagem-sp"] as const;
 
 type Role = (typeof ROLES)[number];
 type Screen = (typeof SCREENS)[number];
@@ -29,24 +29,28 @@ const DEFAULT_PERMISSIONS: Array<{ role: Role; screen_key: Screen; is_enabled: b
   { role: "admin", screen_key: "error-reports", is_enabled: true },
   { role: "admin", screen_key: "imports", is_enabled: true },
   { role: "admin", screen_key: "users", is_enabled: true },
+  { role: "admin", screen_key: "montagem-sp", is_enabled: true },
   { role: "supervisor", screen_key: "dashboard", is_enabled: true },
   { role: "supervisor", screen_key: "descents", is_enabled: true },
   { role: "supervisor", screen_key: "error-check", is_enabled: true },
   { role: "supervisor", screen_key: "error-reports", is_enabled: true },
   { role: "supervisor", screen_key: "imports", is_enabled: false },
   { role: "supervisor", screen_key: "users", is_enabled: true },
+  { role: "supervisor", screen_key: "montagem-sp", is_enabled: true },
   { role: "operator", screen_key: "dashboard", is_enabled: false },
   { role: "operator", screen_key: "descents", is_enabled: true },
   { role: "operator", screen_key: "error-check", is_enabled: false },
   { role: "operator", screen_key: "error-reports", is_enabled: false },
   { role: "operator", screen_key: "imports", is_enabled: false },
   { role: "operator", screen_key: "users", is_enabled: false },
+  { role: "operator", screen_key: "montagem-sp", is_enabled: true },
   { role: "conferente", screen_key: "dashboard", is_enabled: false },
   { role: "conferente", screen_key: "descents", is_enabled: false },
   { role: "conferente", screen_key: "error-check", is_enabled: true },
   { role: "conferente", screen_key: "error-reports", is_enabled: false },
   { role: "conferente", screen_key: "imports", is_enabled: false },
-  { role: "conferente", screen_key: "users", is_enabled: false }
+  { role: "conferente", screen_key: "users", is_enabled: false },
+  { role: "conferente", screen_key: "montagem-sp", is_enabled: false }
 ];
 
 async function ensureSettingsTable() {
@@ -91,7 +95,8 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-check": false,
       "error-reports": false,
       imports: false,
-      users: false
+      users: false,
+      "montagem-sp": false
     },
     supervisor: {
       dashboard: false,
@@ -99,7 +104,8 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-check": false,
       "error-reports": false,
       imports: false,
-      users: false
+      users: false,
+      "montagem-sp": false
     },
     operator: {
       dashboard: false,
@@ -107,7 +113,8 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-check": false,
       "error-reports": false,
       imports: false,
-      users: false
+      users: false,
+      "montagem-sp": false
     },
     conferente: {
       dashboard: false,
@@ -115,7 +122,8 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-check": false,
       "error-reports": false,
       imports: false,
-      users: false
+      users: false,
+      "montagem-sp": false
     }
   };
 

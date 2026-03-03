@@ -1,6 +1,6 @@
 export type Role = "admin" | "supervisor" | "operator" | "conferente";
 
-export type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users";
+export type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp";
 
 export type User = {
   id: string;
@@ -66,4 +66,26 @@ export type AccessSettings = {
   roles: Role[];
   screens: ScreenKey[];
   permissions: Record<Role, Record<ScreenKey, boolean>>;
+};
+
+export type MontagemSpRecord = {
+  id: string;
+  work_date: string;
+  loader_user_name: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  duration_minutes?: number | null;
+  stops_count?: number | null;
+  pause_minutes?: number | null;
+  pause_reason?: string | null;
+  pallets_count?: number | null;
+  load_value?: number | null;
+  volume?: number | null;
+  weight_kg?: number | null;
+  isopor_qty?: number | null;
+  has_helper: boolean;
+  helper_name?: string | null;
+  photo_path?: string | null;
+  notes?: string | null;
+  created_at: string;
 };

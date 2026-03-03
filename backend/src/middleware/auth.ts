@@ -17,7 +17,7 @@ type TokenPayload = {
   pen_color?: string;
 };
 
-type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users";
+type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp";
 
 const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
   admin: {
@@ -26,7 +26,8 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-check": true,
     "error-reports": true,
     imports: true,
-    users: true
+    users: true,
+    "montagem-sp": true
   },
   supervisor: {
     dashboard: true,
@@ -34,7 +35,8 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-check": true,
     "error-reports": true,
     imports: false,
-    users: true
+    users: true,
+    "montagem-sp": true
   },
   operator: {
     dashboard: false,
@@ -42,7 +44,8 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-check": false,
     "error-reports": false,
     imports: false,
-    users: false
+    users: false,
+    "montagem-sp": true
   },
   conferente: {
     dashboard: false,
@@ -50,7 +53,8 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-check": true,
     "error-reports": false,
     imports: false,
-    users: false
+    users: false,
+    "montagem-sp": false
   }
 };
 

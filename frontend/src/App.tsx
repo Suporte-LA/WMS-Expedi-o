@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./lib/api";
 import { clearAuth, getStoredUser, getToken } from "./lib/auth";
@@ -11,8 +11,9 @@ import { DescentsPage } from "./pages/DescentsPage";
 import { ErrorCheckPage } from "./pages/ErrorCheckPage";
 import { ErrorReportsPage } from "./pages/ErrorReportsPage";
 import { ConfigurationsPage } from "./pages/ConfigurationsPage";
+import { MontagemSpPage } from "./pages/MontagemSpPage";
 
-type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/settings";
+type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings";
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
@@ -21,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/descents", label: "Descer Pedidos", screen: "descents" },
   { to: "/error-check", label: "Conferencia Erros", screen: "error-check" },
   { to: "/error-reports", label: "Relatorio Erros", screen: "error-reports" },
+  { to: "/montagem-sp", label: "Montagem SP", screen: "montagem-sp" },
   { to: "/imports", label: "Imports", screen: "imports" },
   { to: "/users", label: "Usuarios", screen: "users" }
 ];
@@ -30,6 +32,7 @@ const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/descents": "descents",
   "/error-check": "error-check",
   "/error-reports": "error-reports",
+  "/montagem-sp": "montagem-sp",
   "/imports": "imports",
   "/users": "users"
 };
@@ -40,6 +43,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     descents: true,
     "error-check": true,
     "error-reports": true,
+    "montagem-sp": true,
     imports: true,
     users: true
   },
@@ -48,6 +52,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     descents: true,
     "error-check": true,
     "error-reports": true,
+    "montagem-sp": true,
     imports: false,
     users: true
   },
@@ -56,6 +61,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     descents: true,
     "error-check": false,
     "error-reports": false,
+    "montagem-sp": true,
     imports: false,
     users: false
   },
@@ -64,6 +70,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     descents: false,
     "error-check": true,
     "error-reports": false,
+    "montagem-sp": false,
     imports: false,
     users: false
   }
@@ -133,7 +140,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
             onClick={() => setMobileMenuOpen(true)}
             aria-label="Abrir menu"
           >
-            ☰
+            Menu
           </button>
         </div>
       </header>
@@ -194,6 +201,10 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
             <Route
               path="/error-reports"
               element={canAccess(user.role, "/error-reports", permissions) ? <ErrorReportsPage /> : <Navigate to={defaultRoute} replace />}
+            />
+            <Route
+              path="/montagem-sp"
+              element={canAccess(user.role, "/montagem-sp", permissions) ? <MontagemSpPage user={user} /> : <Navigate to={defaultRoute} replace />}
             />
             <Route
               path="/imports"
