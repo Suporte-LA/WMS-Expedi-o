@@ -6,6 +6,7 @@ import { config } from "../config.js";
 import { pool } from "../db.js";
 import { authRequired, AuthenticatedRequest } from "../middleware/auth.js";
 import { writeAuditLog } from "../services/audit.js";
+import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -21,8 +22,11 @@ authRouter.post("/login", async (req, res) => {
   }
 
   const { email, password } = parsed.data;
+  const hasWorkspace = await supportsWorkspaceColumn();
   const result = await pool.query(
-    `SELECT id, name, email, role, is_active, pen_color, workspace, password_hash FROM users WHERE email = $1`,
+    hasWorkspace
+      ? `SELECT id, name, email, role, is_active, pen_color, workspace, password_hash FROM users WHERE email = $1`
+      : `SELECT id, name, email, role, is_active, pen_color, password_hash FROM users WHERE email = $1`,
     [email.toLowerCase()]
   );
 
@@ -48,7 +52,7 @@ authRouter.post("/login", async (req, res) => {
       role: user.role,
       is_active: user.is_active,
       pen_color: user.pen_color,
-      workspace: user.workspace
+      workspace: hasWorkspace ? user.workspace : "expedicao"
     },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn as jwt.SignOptions["expiresIn"] }
@@ -65,7 +69,7 @@ authRouter.post("/login", async (req, res) => {
       role: user.role,
       is_active: user.is_active,
       pen_color: user.pen_color,
-      workspace: user.workspace
+      workspace: hasWorkspace ? user.workspace : "expedicao"
     }
   });
 });
@@ -74,18 +78,30 @@ authRouter.get("/me", authRequired, async (req: AuthenticatedRequest, res) => {
   if (!req.user) {
     return res.status(401).json({ message: "Nao autenticado." });
   }
+  const hasWorkspace = await supportsWorkspaceColumn();
   const result = await pool.query(
-    `
-      SELECT id, name, email, role, is_active, pen_color
-      , workspace
-      FROM users
-      WHERE id = $1
-      LIMIT 1
-    `,
+    hasWorkspace
+      ? `
+          SELECT id, name, email, role, is_active, pen_color, workspace
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+        `
+      : `
+          SELECT id, name, email, role, is_active, pen_color
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+        `,
     [req.user.id]
   );
   if (!result.rowCount) {
     return res.status(404).json({ message: "Usuario nao encontrado." });
   }
-  return res.json({ user: result.rows[0] });
+  return res.json({
+    user: {
+      ...result.rows[0],
+      workspace: hasWorkspace ? result.rows[0].workspace : "expedicao"
+    }
+  });
 });

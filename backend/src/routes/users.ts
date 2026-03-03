@@ -4,6 +4,7 @@ import { z } from "zod";
 import { pool } from "../db.js";
 import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
 import { writeAuditLog } from "../services/audit.js";
+import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
 const createUserSchema = z.object({
   name: z.string().min(2),
@@ -26,15 +27,26 @@ const updateUserSchema = z.object({
 export const usersRouter = Router();
 
 usersRouter.get("/", authRequired, requireScreenAccess("users"), async (_req, res) => {
+  const hasWorkspace = await supportsWorkspaceColumn();
   const users = await pool.query(
-    `
-      SELECT id, name, email, role, is_active, created_at, pen_color
-      , workspace
-      FROM users
-      ORDER BY created_at DESC
-    `
+    hasWorkspace
+      ? `
+          SELECT id, name, email, role, is_active, created_at, pen_color, workspace
+          FROM users
+          ORDER BY created_at DESC
+        `
+      : `
+          SELECT id, name, email, role, is_active, created_at, pen_color
+          FROM users
+          ORDER BY created_at DESC
+        `
   );
-  return res.json({ items: users.rows });
+  return res.json({
+    items: users.rows.map((u) => ({
+      ...u,
+      workspace: hasWorkspace ? u.workspace : "expedicao"
+    }))
+  });
 });
 
 usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: AuthenticatedRequest, res) => {
@@ -51,13 +63,20 @@ usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: Au
 
   const { name, email, password, role, pen_color, workspace } = parsed.data;
   const hash = await bcrypt.hash(password, 10);
+  const hasWorkspace = await supportsWorkspaceColumn();
   const result = await pool.query(
-    `
-      INSERT INTO users (name, email, password_hash, role, pen_color, workspace)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, name, email, role, is_active, created_at, pen_color, workspace
-    `,
-    [name, email.toLowerCase(), hash, role, pen_color, workspace]
+    hasWorkspace
+      ? `
+          INSERT INTO users (name, email, password_hash, role, pen_color, workspace)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING id, name, email, role, is_active, created_at, pen_color, workspace
+        `
+      : `
+          INSERT INTO users (name, email, password_hash, role, pen_color)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, name, email, role, is_active, created_at, pen_color
+        `,
+    hasWorkspace ? [name, email.toLowerCase(), hash, role, pen_color, workspace] : [name, email.toLowerCase(), hash, role, pen_color]
   );
 
   await writeAuditLog({
@@ -66,7 +85,10 @@ usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: Au
     meta: { createdUserId: result.rows[0].id, role }
   });
 
-  return res.status(201).json(result.rows[0]);
+  return res.status(201).json({
+    ...result.rows[0],
+    workspace: hasWorkspace ? result.rows[0].workspace : "expedicao"
+  });
 });
 
 usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req: AuthenticatedRequest, res) => {
@@ -105,7 +127,7 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     fields.push(`pen_color = $${idx++}`);
     values.push(parsed.data.pen_color);
   }
-  if (parsed.data.workspace !== undefined) {
+  if (hasWorkspace && parsed.data.workspace !== undefined) {
     fields.push(`workspace = $${idx++}`);
     values.push(parsed.data.workspace);
   }
@@ -116,12 +138,19 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
 
   values.push(req.params.id);
   const result = await pool.query(
-    `
-      UPDATE users
-      SET ${fields.join(", ")}
-      WHERE id = $${idx}
-      RETURNING id, name, email, role, is_active, created_at, pen_color, workspace
-    `,
+    hasWorkspace
+      ? `
+          UPDATE users
+          SET ${fields.join(", ")}
+          WHERE id = $${idx}
+          RETURNING id, name, email, role, is_active, created_at, pen_color, workspace
+        `
+      : `
+          UPDATE users
+          SET ${fields.join(", ")}
+          WHERE id = $${idx}
+          RETURNING id, name, email, role, is_active, created_at, pen_color
+        `,
     values
   );
 
@@ -135,5 +164,9 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     meta: { updatedUserId: req.params.id, fields: Object.keys(parsed.data) }
   });
 
-  return res.json(result.rows[0]);
+  return res.json({
+    ...result.rows[0],
+    workspace: hasWorkspace ? result.rows[0].workspace : "expedicao"
+  });
 });
+  const hasWorkspace = await supportsWorkspaceColumn();
