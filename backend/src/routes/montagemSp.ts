@@ -30,6 +30,7 @@ const createSchema = z.object({
   isoporQty: z.coerce.number().int().min(0).optional(),
   hasHelper: boolLike,
   helperName: z.string().optional(),
+  pauseEvents: z.string().optional(),
   notes: z.string().optional(),
   externalRef: z.string().optional()
 });
@@ -69,6 +70,19 @@ function computeDuration(startTime?: string, endTime?: string, pauseMinutes = 0)
 
 export const montagemSpRouter = Router();
 
+montagemSpRouter.get("/helpers", authRequired, requireScreenAccess("montagem-sp"), async (_req, res) => {
+  const result = await pool.query(
+    `
+      SELECT id, name
+      FROM users
+      WHERE is_active = true
+        AND role <> 'admin'
+      ORDER BY name
+    `
+  );
+  return res.json({ items: result.rows });
+});
+
 montagemSpRouter.post(
   "/",
   authRequired,
@@ -81,6 +95,24 @@ montagemSpRouter.post(
 
     const data = parsed.data;
     const hasHelper = Boolean(data.hasHelper);
+    if (hasHelper && !data.helperName?.trim()) {
+      return res.status(400).json({ message: "Selecione o ajudante." });
+    }
+
+    let pauseReason = data.pauseReason?.trim() || "";
+    if (data.pauseEvents) {
+      try {
+        const parsedEvents = JSON.parse(data.pauseEvents) as Array<{ start: string; end: string; reason: string; minutes: number }>;
+        if (Array.isArray(parsedEvents) && parsedEvents.length) {
+          pauseReason = parsedEvents
+            .map((event) => `${event.start} - ${event.end} (${event.minutes} min): ${event.reason}`.trim())
+            .join(" | ");
+        }
+      } catch {
+        // Keeps pauseReason fallback if pauseEvents payload is invalid JSON.
+      }
+    }
+
     const durationMinutes = computeDuration(data.startTime, data.endTime, data.pauseMinutes || 0);
 
     const result = await pool.query(
@@ -106,7 +138,7 @@ montagemSpRouter.post(
         durationMinutes,
         data.stopsCount || 0,
         data.pauseMinutes || 0,
-        data.pauseReason || null,
+        pauseReason || null,
         data.palletsCount ?? null,
         data.loadValue ?? null,
         data.volume ?? null,
