@@ -1,4 +1,5 @@
 export type Role = "admin" | "supervisor" | "operator" | "conferente";
+export type Workspace = "expedicao" | "estoque";
 
 export type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp";
 
@@ -9,6 +10,7 @@ export type User = {
   role: Role;
   is_active: boolean;
   pen_color: string;
+  workspace: Workspace;
 };
 
 export type ImportRecord = {

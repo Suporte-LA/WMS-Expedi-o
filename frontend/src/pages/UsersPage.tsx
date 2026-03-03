@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
-import type { Role, User } from "../types";
+import type { Role, User, Workspace } from "../types";
 
 export function UsersPage({ currentUser }: { currentUser: User }) {
   const [users, setUsers] = useState<User[]>([]);
@@ -9,10 +9,12 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("operator");
+  const [workspace, setWorkspace] = useState<Workspace>("expedicao");
   const [penColor, setPenColor] = useState("Blue");
   const [error, setError] = useState("");
   const [roleDrafts, setRoleDrafts] = useState<Record<string, Role>>({});
   const [colorDrafts, setColorDrafts] = useState<Record<string, string>>({});
+  const [workspaceDrafts, setWorkspaceDrafts] = useState<Record<string, Workspace>>({});
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [listMode, setListMode] = useState<"active" | "inactive">("active");
 
@@ -25,12 +27,15 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
     setUsers(items);
     const drafts: Record<string, Role> = {};
     const colors: Record<string, string> = {};
+    const workspaces: Record<string, Workspace> = {};
     items.forEach((u) => {
       drafts[u.id] = u.role;
       colors[u.id] = u.pen_color || "Blue";
+      workspaces[u.id] = u.workspace || "expedicao";
     });
     setRoleDrafts(drafts);
     setColorDrafts(colors);
+    setWorkspaceDrafts(workspaces);
   }
 
   useEffect(() => {
@@ -57,11 +62,12 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
       return;
     }
     try {
-      await api.post("/users", { name, email, password, role, pen_color: penColor });
+      await api.post("/users", { name, email, password, role, pen_color: penColor, workspace });
       setName("");
       setEmail("");
       setPassword("");
       setRole("operator");
+      setWorkspace("expedicao");
       setPenColor("Blue");
       await loadUsers();
     } catch (err: any) {
@@ -83,11 +89,12 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   async function saveUser(user: User) {
     const nextRole = roleDrafts[user.id];
     const nextColor = (colorDrafts[user.id] || "").trim();
+    const nextWorkspace = workspaceDrafts[user.id];
     if (!nextRole) return;
-    if (nextRole === user.role && nextColor === (user.pen_color || "")) return;
+    if (nextRole === user.role && nextColor === (user.pen_color || "") && nextWorkspace === user.workspace) return;
     setSavingUserId(user.id);
     try {
-      await api.patch(`/users/${user.id}`, { role: nextRole, pen_color: nextColor || user.pen_color });
+      await api.patch(`/users/${user.id}`, { role: nextRole, pen_color: nextColor || user.pen_color, workspace: nextWorkspace || user.workspace });
       await loadUsers();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao salvar usuario.");
@@ -121,6 +128,10 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
           <option value="supervisor">supervisor</option>
           <option value="operator">operator</option>
           <option value="conferente">conferente</option>
+        </select>
+        <select className="border rounded-xl px-3 py-2" value={workspace} onChange={(e) => setWorkspace(e.target.value as Workspace)}>
+          <option value="expedicao">Expedicao</option>
+          <option value="estoque">Estoque</option>
         </select>
         <input
           className="border rounded-xl px-3 py-2"
@@ -159,6 +170,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
               <th>E-mail</th>
               <th>Perfil</th>
               <th>Cor</th>
+              <th>Tela</th>
               <th>Status</th>
               <th>Acao</th>
             </tr>
@@ -189,6 +201,18 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                     onChange={(e) => setColorDrafts((prev) => ({ ...prev, [u.id]: e.target.value }))}
                   />
                 </td>
+                <td>
+                  <select
+                    className="border rounded-lg px-2 py-1"
+                    value={workspaceDrafts[u.id] || u.workspace}
+                    onChange={(e) =>
+                      setWorkspaceDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Workspace }))
+                    }
+                  >
+                    <option value="expedicao">Expedicao</option>
+                    <option value="estoque">Estoque</option>
+                  </select>
+                </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>
                 <td>
                   <div className="flex gap-3 items-center">
@@ -204,7 +228,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
             ))}
             {!shownUsers.length && (
               <tr>
-                <td className="py-3 text-slate-500" colSpan={6}>
+                <td className="py-3 text-slate-500" colSpan={7}>
                   Nenhum usuario {listMode === "active" ? "ativo" : "inativo"}.
                 </td>
               </tr>

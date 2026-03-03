@@ -21,7 +21,16 @@ export function getStoredUser(): User | null {
   const raw = localStorage.getItem(USER_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as User;
+    const parsed = JSON.parse(raw) as Partial<User>;
+    return {
+      id: parsed.id || "",
+      name: parsed.name || "",
+      email: parsed.email || "",
+      role: (parsed.role as User["role"]) || "operator",
+      is_active: Boolean(parsed.is_active),
+      pen_color: parsed.pen_color || "Blue",
+      workspace: (parsed.workspace as User["workspace"]) || "expedicao"
+    };
   } catch {
     return null;
   }

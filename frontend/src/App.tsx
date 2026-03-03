@@ -2,7 +2,7 @@
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./lib/api";
 import { clearAuth, getStoredUser, getToken } from "./lib/auth";
-import type { AccessSettings, Role, ScreenKey, User } from "./types";
+import type { AccessSettings, Role, ScreenKey, User, Workspace } from "./types";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ImportsPage } from "./pages/ImportsPage";
@@ -12,12 +12,13 @@ import { ErrorCheckPage } from "./pages/ErrorCheckPage";
 import { ErrorReportsPage } from "./pages/ErrorReportsPage";
 import { ConfigurationsPage } from "./pages/ConfigurationsPage";
 import { MontagemSpPage } from "./pages/MontagemSpPage";
+import { StockPage } from "./pages/StockPage";
 
-type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings";
+type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings" | "/estoque";
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
-const NAV_ITEMS: NavItem[] = [
+const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", screen: "dashboard" },
   { to: "/descents", label: "Descer Pedidos", screen: "descents" },
   { to: "/error-check", label: "Conferencia Erros", screen: "error-check" },
@@ -26,6 +27,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/imports", label: "Imports", screen: "imports" },
   { to: "/users", label: "Usuarios", screen: "users" }
 ];
+
+const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -76,22 +79,27 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
   }
 };
 
-function buildNav(role: Role, permissions: AccessSettings["permissions"]): NavItem[] {
-  const base = NAV_ITEMS.filter((item) => (item.screen ? permissions[role][item.screen] : false));
+function buildNav(role: Role, permissions: AccessSettings["permissions"], workspace: Workspace): NavItem[] {
+  if (workspace === "estoque") {
+    return STOCK_NAV_ITEMS;
+  }
+
+  const base = EXPEDICAO_NAV_ITEMS.filter((item) => (item.screen ? permissions[role][item.screen] : false));
   if (role === "admin") {
     base.push({ to: "/settings", label: "Configuracoes" });
   }
   return base;
 }
 
-function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"]): AppRoute {
-  const nav = buildNav(role, permissions);
+function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"], workspace: Workspace): AppRoute {
+  if (workspace === "estoque") return "/estoque";
+  const nav = buildNav(role, permissions, workspace);
   if (nav.length) return nav[0].to;
   if (role === "admin") return "/settings";
   return "/descents";
 }
 
-function canAccess(role: Role, path: AppRoute, permissions: AccessSettings["permissions"]): boolean {
+function canAccessExpedicaoRoute(role: Role, path: AppRoute, permissions: AccessSettings["permissions"]): boolean {
   if (path === "/settings") return role === "admin";
   const screen = ROUTE_TO_SCREEN[path];
   if (!screen) return false;
@@ -100,13 +108,33 @@ function canAccess(role: Role, path: AppRoute, permissions: AccessSettings["perm
 
 function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout: () => void; permissions: AccessSettings["permissions"] }) {
   const location = useLocation();
-  const nav = useMemo(() => buildNav(user.role, permissions), [user.role, permissions]);
-  const defaultRoute = defaultRouteFor(user.role, permissions);
+  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(user.role === "admin" ? "expedicao" : user.workspace);
+
+  useEffect(() => {
+    if (user.role !== "admin") {
+      setActiveWorkspace(user.workspace);
+    }
+  }, [user.role, user.workspace]);
+
+  const nav = useMemo(() => buildNav(user.role, permissions, activeWorkspace), [user.role, permissions, activeWorkspace]);
+  const defaultRoute = defaultRouteFor(user.role, permissions, activeWorkspace);
 
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const inStockPath = location.pathname === "/estoque";
+    if (activeWorkspace === "estoque" && !inStockPath) {
+      navigate("/estoque", { replace: true });
+      return;
+    }
+    if (activeWorkspace === "expedicao" && inStockPath) {
+      navigate(defaultRouteFor(user.role, permissions, "expedicao"), { replace: true });
+    }
+  }, [activeWorkspace, location.pathname, navigate, user.role, permissions]);
 
   return (
     <div className="min-h-screen">
@@ -131,9 +159,21 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               </Link>
             ))}
           </nav>
-          <button onClick={onLogout} className="hidden md:inline text-sm underline">
-            Sair
-          </button>
+          <div className="hidden md:flex items-center gap-3">
+            {user.role === "admin" && (
+              <select
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1 text-sm"
+                value={activeWorkspace}
+                onChange={(e) => setActiveWorkspace(e.target.value as Workspace)}
+              >
+                <option value="expedicao">Tela: Expedicao</option>
+                <option value="estoque">Tela: Estoque</option>
+              </select>
+            )}
+            <button onClick={onLogout} className="text-sm underline">
+              Sair
+            </button>
+          </div>
           <button
             type="button"
             className="md:hidden rounded-lg border border-slate-600 px-3 py-1 text-sm"
@@ -158,6 +198,16 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
                 Fechar
               </button>
             </div>
+            {user.role === "admin" && (
+              <select
+                className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm"
+                value={activeWorkspace}
+                onChange={(e) => setActiveWorkspace(e.target.value as Workspace)}
+              >
+                <option value="expedicao">Tela: Expedicao</option>
+                <option value="estoque">Tela: Estoque</option>
+              </select>
+            )}
             <div className="space-y-2">
               {nav.map((item) => (
                 <Link
@@ -171,10 +221,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
                 </Link>
               ))}
             </div>
-            <button
-              onClick={onLogout}
-              className="w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-left"
-            >
+            <button onClick={onLogout} className="w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-left">
               Sair
             </button>
           </aside>
@@ -186,37 +233,70 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
           <p className="text-sm text-slate-600">Nenhuma tela liberada para este perfil no momento.</p>
         ) : (
           <Routes>
+            <Route path="/estoque" element={activeWorkspace === "estoque" ? <StockPage /> : <Navigate to={defaultRoute} replace />} />
             <Route
               path="/"
-              element={canAccess(user.role, "/", permissions) ? <DashboardPage /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/", permissions)
+                  ? <DashboardPage />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/descents"
-              element={canAccess(user.role, "/descents", permissions) ? <DescentsPage user={user} /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/descents", permissions)
+                  ? <DescentsPage user={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/error-check"
-              element={canAccess(user.role, "/error-check", permissions) ? <ErrorCheckPage user={user} /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/error-check", permissions)
+                  ? <ErrorCheckPage user={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/error-reports"
-              element={canAccess(user.role, "/error-reports", permissions) ? <ErrorReportsPage /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/error-reports", permissions)
+                  ? <ErrorReportsPage />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/montagem-sp"
-              element={canAccess(user.role, "/montagem-sp", permissions) ? <MontagemSpPage user={user} /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/montagem-sp", permissions)
+                  ? <MontagemSpPage user={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/imports"
-              element={canAccess(user.role, "/imports", permissions) ? <ImportsPage user={user} /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/imports", permissions)
+                  ? <ImportsPage user={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/users"
-              element={canAccess(user.role, "/users", permissions) ? <UsersPage currentUser={user} /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/users", permissions)
+                  ? <UsersPage currentUser={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route
               path="/settings"
-              element={canAccess(user.role, "/settings", permissions) ? <ConfigurationsPage currentUser={user} /> : <Navigate to={defaultRoute} replace />}
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/settings", permissions)
+                  ? <ConfigurationsPage currentUser={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
             />
             <Route path="*" element={<Navigate to={defaultRoute} replace />} />
           </Routes>

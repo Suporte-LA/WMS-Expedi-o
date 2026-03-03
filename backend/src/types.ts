@@ -1,4 +1,5 @@
 export type UserRole = "admin" | "supervisor" | "operator" | "conferente";
+export type Workspace = "expedicao" | "estoque";
 
 export type SafeUser = {
   id: string;
@@ -7,4 +8,5 @@ export type SafeUser = {
   role: UserRole;
   is_active: boolean;
   pen_color: string;
+  workspace: Workspace;
 };

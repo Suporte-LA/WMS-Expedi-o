@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
-import { SafeUser, UserRole } from "../types.js";
+import { SafeUser, UserRole, Workspace } from "../types.js";
 import { pool } from "../db.js";
 
 export type AuthenticatedRequest = Request & {
@@ -15,6 +15,7 @@ type TokenPayload = {
   role: UserRole;
   is_active: boolean;
   pen_color?: string;
+  workspace?: Workspace;
 };
 
 type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp";
@@ -77,7 +78,8 @@ export function authRequired(req: AuthenticatedRequest, res: Response, next: Nex
       email: payload.email,
       role: payload.role,
       is_active: payload.is_active,
-      pen_color: payload.pen_color ?? ""
+      pen_color: payload.pen_color ?? "",
+      workspace: payload.workspace ?? "expedicao"
     };
     return next();
   } catch (error) {

@@ -10,7 +10,8 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   role: z.enum(["admin", "supervisor", "operator", "conferente"]),
-  pen_color: z.string().min(1).default("Blue")
+  pen_color: z.string().min(1).default("Blue"),
+  workspace: z.enum(["expedicao", "estoque"]).default("expedicao")
 });
 
 const updateUserSchema = z.object({
@@ -18,7 +19,8 @@ const updateUserSchema = z.object({
   role: z.enum(["admin", "supervisor", "operator", "conferente"]).optional(),
   is_active: z.boolean().optional(),
   password: z.string().min(6).optional(),
-  pen_color: z.string().min(1).optional()
+  pen_color: z.string().min(1).optional(),
+  workspace: z.enum(["expedicao", "estoque"]).optional()
 });
 
 export const usersRouter = Router();
@@ -27,6 +29,7 @@ usersRouter.get("/", authRequired, requireScreenAccess("users"), async (_req, re
   const users = await pool.query(
     `
       SELECT id, name, email, role, is_active, created_at, pen_color
+      , workspace
       FROM users
       ORDER BY created_at DESC
     `
@@ -46,15 +49,15 @@ usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: Au
     });
   }
 
-  const { name, email, password, role, pen_color } = parsed.data;
+  const { name, email, password, role, pen_color, workspace } = parsed.data;
   const hash = await bcrypt.hash(password, 10);
   const result = await pool.query(
     `
-      INSERT INTO users (name, email, password_hash, role, pen_color)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, name, email, role, is_active, created_at, pen_color
+      INSERT INTO users (name, email, password_hash, role, pen_color, workspace)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, name, email, role, is_active, created_at, pen_color, workspace
     `,
-    [name, email.toLowerCase(), hash, role, pen_color]
+    [name, email.toLowerCase(), hash, role, pen_color, workspace]
   );
 
   await writeAuditLog({
@@ -102,6 +105,10 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     fields.push(`pen_color = $${idx++}`);
     values.push(parsed.data.pen_color);
   }
+  if (parsed.data.workspace !== undefined) {
+    fields.push(`workspace = $${idx++}`);
+    values.push(parsed.data.workspace);
+  }
 
   if (!fields.length) {
     return res.status(400).json({ message: "Nada para atualizar." });
@@ -113,7 +120,7 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
       UPDATE users
       SET ${fields.join(", ")}
       WHERE id = $${idx}
-      RETURNING id, name, email, role, is_active, created_at, pen_color
+      RETURNING id, name, email, role, is_active, created_at, pen_color, workspace
     `,
     values
   );
