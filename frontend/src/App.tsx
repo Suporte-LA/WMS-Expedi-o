@@ -31,6 +31,7 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
 
 const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
 const STOCK_TI_NAV_ITEMS: NavItem[] = [{ to: "/estoque-ti", label: "Estoque TI" }];
+const ALL_WORKSPACES: Workspace[] = ["expedicao", "estoque", "estoque-ti"];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -117,12 +118,38 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(user.role === "admin" ? "expedicao" : user.workspace);
+  const [allowedWorkspaces, setAllowedWorkspaces] = useState<Workspace[]>(user.role === "admin" ? ALL_WORKSPACES : [user.workspace]);
 
   useEffect(() => {
-    if (user.role !== "admin") {
+    if (user.role === "admin") {
+      setAllowedWorkspaces(ALL_WORKSPACES);
+      return;
+    }
+    async function loadMyWorkspaces() {
+      try {
+        const { data } = await api.get("/settings/workspaces/me");
+        const list = Array.isArray(data?.workspaces) ? (data.workspaces as Workspace[]) : [];
+        const sanitized = list.filter((w) => ALL_WORKSPACES.includes(w));
+        setAllowedWorkspaces(sanitized.length ? sanitized : [user.workspace]);
+      } catch {
+        setAllowedWorkspaces([user.workspace]);
+      }
+    }
+    loadMyWorkspaces();
+  }, [user.id, user.role, user.workspace]);
+
+  useEffect(() => {
+    if (user.role === "admin") return;
+    if (user.role === "supervisor") {
+      if (!allowedWorkspaces.includes(activeWorkspace)) {
+        setActiveWorkspace(allowedWorkspaces[0] || user.workspace);
+      }
+      return;
+    }
+    if (activeWorkspace !== user.workspace) {
       setActiveWorkspace(user.workspace);
     }
-  }, [user.role, user.workspace]);
+  }, [user.role, user.workspace, activeWorkspace, allowedWorkspaces]);
 
   const nav = useMemo(() => buildNav(user.role, permissions, activeWorkspace), [user.role, permissions, activeWorkspace]);
   const defaultRoute = defaultRouteFor(user.role, permissions, activeWorkspace);
@@ -130,6 +157,9 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  const canSwitchWorkspace = user.role === "admin" || (user.role === "supervisor" && allowedWorkspaces.length > 1);
+  const workspaceOptions = user.role === "admin" ? ALL_WORKSPACES : allowedWorkspaces;
 
   useEffect(() => {
     const inStockPath = location.pathname === "/estoque";
@@ -178,9 +208,24 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
                 value={activeWorkspace}
                 onChange={(e) => setActiveWorkspace(e.target.value as Workspace)}
               >
-                <option value="expedicao">Tela: Expedicao</option>
-                <option value="estoque">Tela: Estoque</option>
-                <option value="estoque-ti">Tela: Estoque TI</option>
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace} value={workspace}>
+                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : "Estoque TI"}
+                  </option>
+                ))}
+              </select>
+            )}
+            {user.role !== "admin" && canSwitchWorkspace && (
+              <select
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1 text-sm"
+                value={activeWorkspace}
+                onChange={(e) => setActiveWorkspace(e.target.value as Workspace)}
+              >
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace} value={workspace}>
+                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : "Estoque TI"}
+                  </option>
+                ))}
               </select>
             )}
             <button onClick={onLogout} className="text-sm underline">
@@ -211,15 +256,17 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
                 Fechar
               </button>
             </div>
-            {user.role === "admin" && (
+            {canSwitchWorkspace && (
               <select
                 className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm"
                 value={activeWorkspace}
                 onChange={(e) => setActiveWorkspace(e.target.value as Workspace)}
               >
-                <option value="expedicao">Tela: Expedicao</option>
-                <option value="estoque">Tela: Estoque</option>
-                <option value="estoque-ti">Tela: Estoque TI</option>
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace} value={workspace}>
+                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : "Estoque TI"}
+                  </option>
+                ))}
               </select>
             )}
             <div className="space-y-2">

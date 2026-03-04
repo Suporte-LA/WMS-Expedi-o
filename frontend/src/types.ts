@@ -70,6 +70,18 @@ export type AccessSettings = {
   permissions: Record<Role, Record<ScreenKey, boolean>>;
 };
 
+export type WorkspaceAccessSettings = {
+  users: Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: Role;
+    is_active: boolean;
+  }>;
+  workspaces: Workspace[];
+  permissions: Record<string, Record<Workspace, boolean>>;
+};
+
 export type MontagemSpRecord = {
   id: string;
   work_date: string;
