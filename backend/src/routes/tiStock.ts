@@ -288,6 +288,37 @@ tiStockRouter.get("/report", authRequired, async (req, res) => {
     values
   );
 
+  const topEntry = await pool.query(
+    `
+      SELECT
+        p.sku, p.cod, p.description, p.category,
+        SUM(m.quantity)::numeric(12,2) AS total_entry
+      FROM ti_stock_movements m
+      JOIN ti_stock_products p ON p.id = m.product_id
+      ${where ? `${where} AND m.movement_type = 'entry'` : "WHERE m.movement_type = 'entry'"}
+      GROUP BY p.sku, p.cod, p.description, p.category
+      ORDER BY total_entry DESC
+      LIMIT 10
+    `,
+    values
+  );
+
+  const leastEntry = await pool.query(
+    `
+      SELECT
+        p.sku, p.cod, p.description, p.category,
+        SUM(m.quantity)::numeric(12,2) AS total_entry
+      FROM ti_stock_movements m
+      JOIN ti_stock_products p ON p.id = m.product_id
+      ${where ? `${where} AND m.movement_type = 'entry'` : "WHERE m.movement_type = 'entry'"}
+      GROUP BY p.sku, p.cod, p.description, p.category
+      HAVING SUM(m.quantity) > 0
+      ORDER BY total_entry ASC
+      LIMIT 10
+    `,
+    values
+  );
+
   const leastExit = await pool.query(
     `
       SELECT
@@ -336,12 +367,35 @@ tiStockRouter.get("/report", authRequired, async (req, res) => {
     values
   );
 
+  const entryDetails = await pool.query(
+    `
+      SELECT
+        m.id,
+        m.created_at,
+        m.created_by_name,
+        m.quantity,
+        p.sku,
+        p.cod,
+        p.description,
+        p.category
+      FROM ti_stock_movements m
+      JOIN ti_stock_products p ON p.id = m.product_id
+      ${where ? `${where} AND m.movement_type = 'entry'` : "WHERE m.movement_type = 'entry'"}
+      ORDER BY m.created_at DESC
+      LIMIT 100
+    `,
+    values
+  );
+
   return res.json({
     totals: totals.rows[0],
+    topEntry: topEntry.rows,
+    leastEntry: leastEntry.rows,
     topExit: topExit.rows,
     leastExit: leastExit.rows,
     byDestination: byDestination.rows,
-    flowByProduct: flowByProduct.rows
+    flowByProduct: flowByProduct.rows,
+    entryDetails: entryDetails.rows
   });
 });
 

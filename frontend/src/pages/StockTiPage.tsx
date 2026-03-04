@@ -36,10 +36,13 @@ type TiReport = {
     total_exit: number;
     total_return: number;
   };
+  topEntry: Array<{ sku: string; cod?: string; description?: string; category?: string; total_entry: number }>;
+  leastEntry: Array<{ sku: string; cod?: string; description?: string; category?: string; total_entry: number }>;
   topExit: Array<{ sku: string; cod?: string; description?: string; category?: string; total_exit: number }>;
   leastExit: Array<{ sku: string; cod?: string; description?: string; category?: string; total_exit: number }>;
   byDestination: Array<{ destination: string; total_exit: number }>;
   flowByProduct: Array<{ sku: string; cod?: string; description?: string; category?: string; total_entry: number; total_exit: number; total_return: number }>;
+  entryDetails: Array<{ id: string; created_at: string; created_by_name?: string; quantity: number; sku: string; cod?: string; description?: string; category?: string }>;
 };
 
 function isoToday() {
@@ -232,14 +235,14 @@ export function StockTiPage({ user }: { user: User }) {
             <button
               type="button"
               onClick={() => setActiveView("movement")}
-              className={`rounded-lg px-3 py-1 text-sm border ${activeView === "movement" ? "bg-slate-900 text-white" : "bg-white"}`}
+              className={`rounded-lg px-3 py-1 text-sm ${activeView === "movement" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
             >
               Movimentacao
             </button>
             <button
               type="button"
               onClick={() => setActiveView("report")}
-              className={`rounded-lg px-3 py-1 text-sm border ${activeView === "report" ? "bg-slate-900 text-white" : "bg-white"}`}
+              className={`rounded-lg px-3 py-1 text-sm ${activeView === "report" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
             >
               Relatorio de Movimentacao
             </button>
@@ -372,6 +375,34 @@ export function StockTiPage({ user }: { user: User }) {
 
               <div className="grid md:grid-cols-2 gap-3">
                 <div className="rounded-xl border p-3 overflow-auto">
+                  <h4 className="font-semibold mb-2">Maior entrada (quais itens entraram mais)</h4>
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left border-b"><th className="py-1">Item</th><th>Entrada</th></tr></thead>
+                    <tbody>
+                      {(report.topEntry || []).map((row) => (
+                        <tr key={`${row.sku}-${row.cod}`} className="border-b"><td className="py-1">{labelOf({ description: row.description, category: row.category, sku: row.sku })}</td><td>{Number(row.total_entry)}</td></tr>
+                      ))}
+                      {!report.topEntry?.length && (
+                        <tr><td className="py-2 text-slate-500" colSpan={2}>Sem entradas no periodo.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="rounded-xl border p-3 overflow-auto">
+                  <h4 className="font-semibold mb-2">Menor entrada (quais itens entraram menos)</h4>
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left border-b"><th className="py-1">Item</th><th>Entrada</th></tr></thead>
+                    <tbody>
+                      {(report.leastEntry || []).map((row) => (
+                        <tr key={`${row.sku}-${row.cod}`} className="border-b"><td className="py-1">{labelOf({ description: row.description, category: row.category, sku: row.sku })}</td><td>{Number(row.total_entry)}</td></tr>
+                      ))}
+                      {!report.leastEntry?.length && (
+                        <tr><td className="py-2 text-slate-500" colSpan={2}>Sem entradas no periodo.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="rounded-xl border p-3 overflow-auto">
                   <h4 className="font-semibold mb-2">Maior vazao (quem mais sai)</h4>
                   <table className="w-full text-sm">
                     <thead><tr className="text-left border-b"><th className="py-1">Item</th><th>Saida</th></tr></thead>
@@ -379,6 +410,9 @@ export function StockTiPage({ user }: { user: User }) {
                       {(report.topExit || []).map((row) => (
                         <tr key={`${row.sku}-${row.cod}`} className="border-b"><td className="py-1">{labelOf({ description: row.description, category: row.category, sku: row.sku })}</td><td>{Number(row.total_exit)}</td></tr>
                       ))}
+                      {!report.topExit?.length && (
+                        <tr><td className="py-2 text-slate-500" colSpan={2}>Sem saidas no periodo.</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -390,9 +424,43 @@ export function StockTiPage({ user }: { user: User }) {
                       {(report.leastExit || []).map((row) => (
                         <tr key={`${row.sku}-${row.cod}`} className="border-b"><td className="py-1">{labelOf({ description: row.description, category: row.category, sku: row.sku })}</td><td>{Number(row.total_exit)}</td></tr>
                       ))}
+                      {!report.leastExit?.length && (
+                        <tr><td className="py-2 text-slate-500" colSpan={2}>Sem saidas no periodo.</td></tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              <div className="rounded-xl border p-3 overflow-auto">
+                <h4 className="font-semibold mb-2">Entradas no periodo (detalhado)</h4>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b">
+                      <th className="py-1">Data/Hora</th>
+                      <th>SKU</th>
+                      <th>Cod</th>
+                      <th>Descricao</th>
+                      <th>Qtd</th>
+                      <th>Usuario</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(report.entryDetails || []).map((row) => (
+                      <tr key={row.id} className="border-b">
+                        <td className="py-1">{new Date(row.created_at).toLocaleString("pt-BR")}</td>
+                        <td>{row.sku}</td>
+                        <td>{row.cod || "-"}</td>
+                        <td>{row.description || row.category || "-"}</td>
+                        <td>{Number(row.quantity)}</td>
+                        <td>{row.created_by_name || "-"}</td>
+                      </tr>
+                    ))}
+                    {!report.entryDetails?.length && (
+                      <tr><td className="py-2 text-slate-500" colSpan={6}>Sem entradas no periodo.</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
 
               <div className="rounded-xl border p-3">
