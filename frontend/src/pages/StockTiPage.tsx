@@ -403,7 +403,7 @@ export function StockTiPage({ user }: { user: User }) {
                 <tr key={item.id} className="border-b">
                   <td className="py-2">{item.sku}</td>
                   <td>{item.cod || "-"}</td>
-                  <td>{item.description || item.category || "-"}</td>
+                  <td>{item.display_name || item.description || item.category || "-"}</td>
                   <td>{item.category || "-"}</td>
                   <td>{item.current_stock}</td>
                   <td>{item.min_stock}</td>

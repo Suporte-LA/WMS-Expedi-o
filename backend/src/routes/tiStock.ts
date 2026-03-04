@@ -105,7 +105,7 @@ function parseTiBase(buffer: Buffer, filename: string): ImportedProduct[] {
 
     const cod = textLike(pickField(row, ["Cod", "Codigo"]));
     const description = textLike(pickField(row, ["Descricao", "Description", "Material", "Produto"]));
-    const category = textLike(pickField(row, ["Categoria"]));
+    const category = textLike(pickField(row, ["Categoria", "Categoria "]));
     const guides = textLike(pickField(row, ["Guias"]));
 
     const entrada = numberLike(pickField(row, ["Entrada"]));
@@ -118,7 +118,7 @@ function parseTiBase(buffer: Buffer, filename: string): ImportedProduct[] {
     parsed.push({
       sku,
       cod: cod || null,
-      description: description || null,
+      description: description || category || null,
       category: category || null,
       guides: guides || null,
       minStock,
@@ -205,7 +205,9 @@ tiStockRouter.get("/lookup/:value", authRequired, async (req, res) => {
 tiStockRouter.get("/alerts-low", authRequired, async (_req, res) => {
   const result = await pool.query(
     `
-      SELECT *
+      SELECT
+        *,
+        COALESCE(NULLIF(description, ''), NULLIF(category, ''), sku) AS display_name
       FROM ti_stock_products
       WHERE current_stock <= min_stock
       ORDER BY (min_stock - current_stock) DESC, updated_at DESC

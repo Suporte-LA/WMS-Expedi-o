@@ -110,6 +110,7 @@ export type TiStockProduct = {
   cod?: string | null;
   description?: string | null;
   category?: string | null;
+  display_name?: string | null;
   guides?: string | null;
   current_stock: number;
   min_stock: number;
