@@ -132,6 +132,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
         <select className="border rounded-xl px-3 py-2" value={workspace} onChange={(e) => setWorkspace(e.target.value as Workspace)}>
           <option value="expedicao">Expedicao</option>
           <option value="estoque">Estoque</option>
+          <option value="estoque-ti">Estoque TI</option>
         </select>
         <input
           className="border rounded-xl px-3 py-2"
@@ -211,6 +212,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                   >
                     <option value="expedicao">Expedicao</option>
                     <option value="estoque">Estoque</option>
+                    <option value="estoque-ti">Estoque TI</option>
                   </select>
                 </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>

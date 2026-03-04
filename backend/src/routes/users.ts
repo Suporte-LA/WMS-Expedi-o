@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { pool } from "../db.js";
@@ -6,13 +6,15 @@ import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../midd
 import { writeAuditLog } from "../services/audit.js";
 import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
+const workspaceEnum = z.enum(["expedicao", "estoque", "estoque-ti"]);
+
 const createUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(6),
   role: z.enum(["admin", "supervisor", "operator", "conferente"]),
   pen_color: z.string().min(1).default("Blue"),
-  workspace: z.enum(["expedicao", "estoque"]).default("expedicao")
+  workspace: workspaceEnum.default("expedicao")
 });
 
 const updateUserSchema = z.object({
@@ -21,7 +23,7 @@ const updateUserSchema = z.object({
   is_active: z.boolean().optional(),
   password: z.string().min(6).optional(),
   pen_color: z.string().min(1).optional(),
-  workspace: z.enum(["expedicao", "estoque"]).optional()
+  workspace: workspaceEnum.optional()
 });
 
 export const usersRouter = Router();
@@ -103,6 +105,7 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     });
   }
 
+  const hasWorkspace = await supportsWorkspaceColumn();
   const fields: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
@@ -169,4 +172,4 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     workspace: hasWorkspace ? result.rows[0].workspace : "expedicao"
   });
 });
-  const hasWorkspace = await supportsWorkspaceColumn();
+

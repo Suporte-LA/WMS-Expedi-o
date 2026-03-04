@@ -29,10 +29,8 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/users", label: "Usuarios", screen: "users" }
 ];
 
-const STOCK_NAV_ITEMS: NavItem[] = [
-  { to: "/estoque", label: "Estoque" },
-  { to: "/estoque-ti", label: "Estoque TI" }
-];
+const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
+const STOCK_TI_NAV_ITEMS: NavItem[] = [{ to: "/estoque-ti", label: "Estoque TI" }];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -87,6 +85,9 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
   if (workspace === "estoque") {
     return STOCK_NAV_ITEMS;
   }
+  if (workspace === "estoque-ti") {
+    return STOCK_TI_NAV_ITEMS;
+  }
 
   const base = EXPEDICAO_NAV_ITEMS.filter((item) => (item.screen ? permissions[role][item.screen] : false));
   if (role === "admin") {
@@ -96,7 +97,8 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
 }
 
 function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"], workspace: Workspace): AppRoute {
-  if (workspace === "estoque") return "/estoque-ti";
+  if (workspace === "estoque") return "/estoque";
+  if (workspace === "estoque-ti") return "/estoque-ti";
   const nav = buildNav(role, permissions, workspace);
   if (nav.length) return nav[0].to;
   if (role === "admin") return "/settings";
@@ -130,12 +132,18 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   }, [location.pathname]);
 
   useEffect(() => {
-    const inStockPath = location.pathname === "/estoque" || location.pathname === "/estoque-ti";
+    const inStockPath = location.pathname === "/estoque";
+    const inStockTiPath = location.pathname === "/estoque-ti";
+
     if (activeWorkspace === "estoque" && !inStockPath) {
+      navigate("/estoque", { replace: true });
+      return;
+    }
+    if (activeWorkspace === "estoque-ti" && !inStockTiPath) {
       navigate("/estoque-ti", { replace: true });
       return;
     }
-    if (activeWorkspace === "expedicao" && inStockPath) {
+    if (activeWorkspace === "expedicao" && (inStockPath || inStockTiPath)) {
       navigate(defaultRouteFor(user.role, permissions, "expedicao"), { replace: true });
     }
   }, [activeWorkspace, location.pathname, navigate, user.role, permissions]);
@@ -172,6 +180,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 <option value="expedicao">Tela: Expedicao</option>
                 <option value="estoque">Tela: Estoque</option>
+                <option value="estoque-ti">Tela: Estoque TI</option>
               </select>
             )}
             <button onClick={onLogout} className="text-sm underline">
@@ -210,6 +219,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 <option value="expedicao">Tela: Expedicao</option>
                 <option value="estoque">Tela: Estoque</option>
+                <option value="estoque-ti">Tela: Estoque TI</option>
               </select>
             )}
             <div className="space-y-2">
@@ -238,7 +248,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
         ) : (
           <Routes>
             <Route path="/estoque" element={activeWorkspace === "estoque" ? <StockPage /> : <Navigate to={defaultRoute} replace />} />
-            <Route path="/estoque-ti" element={activeWorkspace === "estoque" ? <StockTiPage user={user} /> : <Navigate to={defaultRoute} replace />} />
+            <Route path="/estoque-ti" element={activeWorkspace === "estoque-ti" ? <StockTiPage user={user} /> : <Navigate to={defaultRoute} replace />} />
             <Route
               path="/"
               element={
