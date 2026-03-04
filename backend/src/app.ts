@@ -11,7 +11,7 @@ import { errorsRouter } from "./routes/errors.js";
 import { settingsRouter } from "./routes/settings.js";
 import { montagemSpRouter } from "./routes/montagemSp.js";
 import { tiStockRouter } from "./routes/tiStock.js";
-import { uploadsDir } from "./services/uploads.js";
+import { additionalUploadsDirs, uploadsDir } from "./services/uploads.js";
 
 export const app = express();
 
@@ -23,6 +23,9 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/uploads", express.static(path.resolve(uploadsDir)));
+for (const dir of additionalUploadsDirs) {
+  app.use("/uploads", express.static(path.resolve(dir)));
+}
 app.use("/auth", authRouter);
 app.use("/imports", importsRouter);
 app.use("/kpi", kpiRouter);
