@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import multer from "multer";
 import XLSX from "xlsx";
 import { z } from "zod";
@@ -45,6 +45,9 @@ const movementSchema = z.object({
 
 const listSchema = z.object({
   search: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  movementType: z.enum(["entry", "exit", "return"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(30)
 });
@@ -81,6 +84,7 @@ function pickField(row: Record<string, unknown>, aliases: string[]) {
 type ImportedProduct = {
   sku: string;
   cod: string | null;
+  description: string | null;
   category: string | null;
   guides: string | null;
   minStock: number;
@@ -99,20 +103,22 @@ function parseTiBase(buffer: Buffer, filename: string): ImportedProduct[] {
     const sku = textLike(pickField(row, ["SKU"]));
     if (!sku) continue;
 
-    const cod = textLike(pickField(row, ["Cod", "Cód"]));
+    const cod = textLike(pickField(row, ["Cod", "Codigo"]));
+    const description = textLike(pickField(row, ["Descricao", "Description", "Material", "Produto"]));
     const category = textLike(pickField(row, ["Categoria"]));
     const guides = textLike(pickField(row, ["Guias"]));
 
     const entrada = numberLike(pickField(row, ["Entrada"]));
-    const saida = numberLike(pickField(row, ["Saida", "Saída"]));
-    const devolucao = numberLike(pickField(row, ["Devolucao", "Devolução"]));
+    const saida = numberLike(pickField(row, ["Saida"]));
+    const devolucao = numberLike(pickField(row, ["Devolucao"]));
     const finalFromFile = numberLike(pickField(row, ["Estoque Final", "EstoqueFinal"]));
-    const minStock = numberLike(pickField(row, ["Estoque Minimo", "Estoque Mínimo", "EstoqueMinimo"]));
+    const minStock = numberLike(pickField(row, ["Estoque Minimo", "EstoqueMinimo"]));
     const computedStock = finalFromFile || entrada - saida + devolucao;
 
     parsed.push({
       sku,
       cod: cod || null,
+      description: description || null,
       category: category || null,
       guides: guides || null,
       minStock,
@@ -124,6 +130,23 @@ function parseTiBase(buffer: Buffer, filename: string): ImportedProduct[] {
     return [];
   }
   return parsed;
+}
+
+function applyMovementFilters(baseFilters: string[], from?: string, to?: string, movementType?: "entry" | "exit" | "return", values: unknown[] = []) {
+  const filters = [...baseFilters];
+  if (movementType) {
+    values.push(movementType);
+    filters.push(`m.movement_type = $${values.length}`);
+  }
+  if (from) {
+    values.push(from);
+    filters.push(`COALESCE(m.movement_date, m.created_at::date) >= $${values.length}::date`);
+  }
+  if (to) {
+    values.push(to);
+    filters.push(`COALESCE(m.movement_date, m.created_at::date) <= $${values.length}::date`);
+  }
+  return { filters, values };
 }
 
 export const tiStockRouter = Router();
@@ -142,7 +165,7 @@ tiStockRouter.get("/products", authRequired, async (req, res) => {
 
   if (search?.trim()) {
     values.push(`%${search.trim()}%`);
-    filters.push(`(sku ILIKE $${values.length} OR cod ILIKE $${values.length} OR category ILIKE $${values.length})`);
+    filters.push(`(sku ILIKE $${values.length} OR cod ILIKE $${values.length} OR description ILIKE $${values.length} OR category ILIKE $${values.length})`);
   }
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
@@ -195,14 +218,16 @@ tiStockRouter.get("/alerts-low", authRequired, async (_req, res) => {
 tiStockRouter.get("/movements", authRequired, async (req, res) => {
   const parsed = listSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ message: "Query invalida." });
-  const { search, page, pageSize } = parsed.data;
+  const { search, from, to, movementType, page, pageSize } = parsed.data;
 
-  const filters: string[] = [];
-  const values: unknown[] = [];
+  const baseFilters: string[] = [];
+  const baseValues: unknown[] = [];
   if (search?.trim()) {
-    values.push(`%${search.trim()}%`);
-    filters.push(`(p.sku ILIKE $${values.length} OR p.cod ILIKE $${values.length} OR m.created_by_name ILIKE $${values.length})`);
+    baseValues.push(`%${search.trim()}%`);
+    baseFilters.push(`(p.sku ILIKE $${baseValues.length} OR p.cod ILIKE $${baseValues.length} OR p.description ILIKE $${baseValues.length} OR m.created_by_name ILIKE $${baseValues.length})`);
   }
+
+  const { filters, values } = applyMovementFilters(baseFilters, from, to, movementType, baseValues);
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const offset = (page - 1) * pageSize;
 
@@ -212,6 +237,7 @@ tiStockRouter.get("/movements", authRequired, async (req, res) => {
         m.*,
         p.sku,
         p.cod,
+        p.description,
         p.category
       FROM ti_stock_movements m
       JOIN ti_stock_products p ON p.id = m.product_id
@@ -223,6 +249,98 @@ tiStockRouter.get("/movements", authRequired, async (req, res) => {
   );
 
   return res.json({ items: result.rows, page, pageSize });
+});
+
+tiStockRouter.get("/report", authRequired, async (req, res) => {
+  const parsed = z.object({ from: z.string().optional(), to: z.string().optional() }).safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ message: "Query invalida." });
+  const { from, to } = parsed.data;
+
+  const { filters, values } = applyMovementFilters([], from, to, undefined, []);
+  const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+
+  const totals = await pool.query(
+    `
+      SELECT
+        COALESCE(SUM(CASE WHEN m.movement_type = 'entry' THEN m.quantity ELSE 0 END), 0)::numeric(12,2) AS total_entry,
+        COALESCE(SUM(CASE WHEN m.movement_type = 'exit' THEN m.quantity ELSE 0 END), 0)::numeric(12,2) AS total_exit,
+        COALESCE(SUM(CASE WHEN m.movement_type = 'return' THEN m.quantity ELSE 0 END), 0)::numeric(12,2) AS total_return
+      FROM ti_stock_movements m
+      ${where}
+    `,
+    values
+  );
+
+  const topExit = await pool.query(
+    `
+      SELECT
+        p.sku, p.cod, p.description, p.category,
+        SUM(m.quantity)::numeric(12,2) AS total_exit
+      FROM ti_stock_movements m
+      JOIN ti_stock_products p ON p.id = m.product_id
+      ${where ? `${where} AND m.movement_type = 'exit'` : "WHERE m.movement_type = 'exit'"}
+      GROUP BY p.sku, p.cod, p.description, p.category
+      ORDER BY total_exit DESC
+      LIMIT 10
+    `,
+    values
+  );
+
+  const leastExit = await pool.query(
+    `
+      SELECT
+        p.sku, p.cod, p.description, p.category,
+        SUM(m.quantity)::numeric(12,2) AS total_exit
+      FROM ti_stock_movements m
+      JOIN ti_stock_products p ON p.id = m.product_id
+      ${where ? `${where} AND m.movement_type = 'exit'` : "WHERE m.movement_type = 'exit'"}
+      GROUP BY p.sku, p.cod, p.description, p.category
+      HAVING SUM(m.quantity) > 0
+      ORDER BY total_exit ASC
+      LIMIT 10
+    `,
+    values
+  );
+
+  const byDestination = await pool.query(
+    `
+      SELECT
+        COALESCE(NULLIF(m.destination_final, ''), 'SEM DESTINO') AS destination,
+        SUM(m.quantity)::numeric(12,2) AS total_exit
+      FROM ti_stock_movements m
+      ${where ? `${where} AND m.movement_type = 'exit'` : "WHERE m.movement_type = 'exit'"}
+      GROUP BY destination
+      ORDER BY total_exit DESC
+      LIMIT 20
+    `,
+    values
+  );
+
+  const flowByProduct = await pool.query(
+    `
+      SELECT
+        p.sku, p.cod, p.description, p.category,
+        COALESCE(SUM(CASE WHEN m.movement_type = 'entry' THEN m.quantity ELSE 0 END), 0)::numeric(12,2) AS total_entry,
+        COALESCE(SUM(CASE WHEN m.movement_type = 'exit' THEN m.quantity ELSE 0 END), 0)::numeric(12,2) AS total_exit,
+        COALESCE(SUM(CASE WHEN m.movement_type = 'return' THEN m.quantity ELSE 0 END), 0)::numeric(12,2) AS total_return
+      FROM ti_stock_products p
+      LEFT JOIN ti_stock_movements m ON m.product_id = p.id
+      ${where ? `AND ${filters.join(" AND ")}` : ""}
+      GROUP BY p.sku, p.cod, p.description, p.category
+      HAVING COALESCE(SUM(m.quantity), 0) > 0
+      ORDER BY total_exit DESC, total_entry DESC
+      LIMIT 50
+    `,
+    values
+  );
+
+  return res.json({
+    totals: totals.rows[0],
+    topExit: topExit.rows,
+    leastExit: leastExit.rows,
+    byDestination: byDestination.rows,
+    flowByProduct: flowByProduct.rows
+  });
 });
 
 tiStockRouter.post("/import-base", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
@@ -255,23 +373,24 @@ tiStockRouter.post("/import-base", authRequired, upload.single("file"), async (r
             UPDATE ti_stock_products
             SET
               cod = $2,
-              category = $3,
-              guides = $4,
-              current_stock = $5,
-              min_stock = $6,
+              description = $3,
+              category = $4,
+              guides = $5,
+              current_stock = $6,
+              min_stock = $7,
               updated_at = now()
             WHERE sku = $1
           `,
-          [row.sku, row.cod, row.category, row.guides, row.currentStock, row.minStock]
+          [row.sku, row.cod, row.description, row.category, row.guides, row.currentStock, row.minStock]
         );
         updated += 1;
       } else {
         await client.query(
           `
-            INSERT INTO ti_stock_products (sku, cod, category, guides, current_stock, min_stock)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO ti_stock_products (sku, cod, description, category, guides, current_stock, min_stock)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
           `,
-          [row.sku, row.cod, row.category, row.guides, row.currentStock, row.minStock]
+          [row.sku, row.cod, row.description, row.category, row.guides, row.currentStock, row.minStock]
         );
         inserted += 1;
       }

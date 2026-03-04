@@ -108,6 +108,7 @@ export type TiStockProduct = {
   id: string;
   sku: string;
   cod?: string | null;
+  description?: string | null;
   category?: string | null;
   guides?: string | null;
   current_stock: number;
@@ -132,5 +133,6 @@ export type TiStockMovement = {
   destination_final?: string | null;
   sku?: string;
   cod?: string | null;
+  description?: string | null;
   category?: string | null;
 };

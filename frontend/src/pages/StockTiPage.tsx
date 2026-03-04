@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../lib/api";
 import type { TiStockMovement, TiStockProduct, User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
@@ -29,8 +30,30 @@ const MOVEMENT_CODE_OPTIONS = [
   "ESTOQUE TI"
 ] as const;
 
+type TiReport = {
+  totals: {
+    total_entry: number;
+    total_exit: number;
+    total_return: number;
+  };
+  topExit: Array<{ sku: string; cod?: string; description?: string; category?: string; total_exit: number }>;
+  leastExit: Array<{ sku: string; cod?: string; description?: string; category?: string; total_exit: number }>;
+  byDestination: Array<{ destination: string; total_exit: number }>;
+  flowByProduct: Array<{ sku: string; cod?: string; description?: string; category?: string; total_entry: number; total_exit: number; total_return: number }>;
+};
+
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function isoDaysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+function labelOf(item: { description?: string | null; category?: string | null; sku: string }) {
+  return item.description || item.category || item.sku;
 }
 
 export function StockTiPage({ user }: { user: User }) {
@@ -53,9 +76,18 @@ export function StockTiPage({ user }: { user: User }) {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
 
+  const [reportFrom, setReportFrom] = useState(isoDaysAgo(30));
+  const [reportTo, setReportTo] = useState(isoToday());
+  const [report, setReport] = useState<TiReport | null>(null);
+
   const [products, setProducts] = useState<TiStockProduct[]>([]);
   const [movements, setMovements] = useState<TiStockMovement[]>([]);
   const [lowAlerts, setLowAlerts] = useState<TiStockProduct[]>([]);
+
+  async function loadReport() {
+    const { data } = await api.get(`/ti-stock/report?from=${reportFrom}&to=${reportTo}`);
+    setReport(data);
+  }
 
   async function loadData() {
     const [productsRes, movementsRes, alertsRes] = await Promise.all([
@@ -70,6 +102,7 @@ export function StockTiPage({ user }: { user: User }) {
 
   useEffect(() => {
     loadData();
+    loadReport();
   }, []);
 
   async function lookupProduct(value: string) {
@@ -106,6 +139,7 @@ export function StockTiPage({ user }: { user: User }) {
       );
       setBaseFile(null);
       await loadData();
+      await loadReport();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Falha ao importar base TI.");
     } finally {
@@ -166,12 +200,18 @@ export function StockTiPage({ user }: { user: User }) {
       setMovementDate(isoToday());
       await lookupProduct(productRef);
       await loadData();
+      await loadReport();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Falha ao registrar movimento.");
     } finally {
       setSavingMovement(false);
     }
   }
+
+  const destinationChart = (report?.byDestination || []).map((item) => ({
+    destino: item.destination,
+    saida: Number(item.total_exit || 0)
+  }));
 
   return (
     <>
@@ -265,8 +305,8 @@ export function StockTiPage({ user }: { user: User }) {
           <div className="grid md:grid-cols-6 gap-3">
             <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="SKU" value={selected?.sku || ""} readOnly />
             <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Cod" value={selected?.cod || ""} readOnly />
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Descricao" value={selected?.description || ""} readOnly />
             <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Categoria" value={selected?.category || ""} readOnly />
-            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Guias" value={selected?.guides || ""} readOnly />
             <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Estoque Atual" value={selected?.current_stock ?? ""} readOnly />
             <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Estoque Minimo" value={selected?.min_stock ?? ""} readOnly />
           </div>
@@ -275,6 +315,69 @@ export function StockTiPage({ user }: { user: User }) {
 
         {message && <p className="text-sm text-emerald-700">{message}</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="font-semibold">Relatorio Estoque TI</h3>
+            <div className="flex items-center gap-2">
+              <input className="border rounded-lg px-3 py-1 text-sm" type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} />
+              <input className="border rounded-lg px-3 py-1 text-sm" type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} />
+              <button type="button" className="rounded-lg border px-3 py-1 text-sm" onClick={loadReport}>Atualizar</button>
+            </div>
+          </div>
+
+          {report && (
+            <>
+              <div className="grid md:grid-cols-4 gap-3">
+                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Total Entrada</p><p className="text-2xl font-bold">{Number(report.totals.total_entry || 0)}</p></article>
+                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Total Saida</p><p className="text-2xl font-bold">{Number(report.totals.total_exit || 0)}</p></article>
+                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Total Devolucao</p><p className="text-2xl font-bold">{Number(report.totals.total_return || 0)}</p></article>
+                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Saldo Movimentado</p><p className="text-2xl font-bold">{Number(report.totals.total_entry || 0) + Number(report.totals.total_return || 0) - Number(report.totals.total_exit || 0)}</p></article>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-3">
+                <div className="rounded-xl border p-3 overflow-auto">
+                  <h4 className="font-semibold mb-2">Maior vazao (quem mais sai)</h4>
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left border-b"><th className="py-1">Item</th><th>Saida</th></tr></thead>
+                    <tbody>
+                      {(report.topExit || []).map((row) => (
+                        <tr key={`${row.sku}-${row.cod}`} className="border-b"><td className="py-1">{labelOf({ description: row.description, category: row.category, sku: row.sku })}</td><td>{Number(row.total_exit)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="rounded-xl border p-3 overflow-auto">
+                  <h4 className="font-semibold mb-2">Menor vazao (quem menos sai)</h4>
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left border-b"><th className="py-1">Item</th><th>Saida</th></tr></thead>
+                    <tbody>
+                      {(report.leastExit || []).map((row) => (
+                        <tr key={`${row.sku}-${row.cod}`} className="border-b"><td className="py-1">{labelOf({ description: row.description, category: row.category, sku: row.sku })}</td><td>{Number(row.total_exit)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-xl border p-3">
+                <h4 className="font-semibold mb-2">Destino com maior saida de material</h4>
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={destinationChart}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="destino" hide />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="saida" name="Saida" fill="#0f766e" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
           <div className="flex items-center justify-between mb-3">
@@ -288,6 +391,7 @@ export function StockTiPage({ user }: { user: User }) {
               <tr className="text-left border-b">
                 <th className="py-2">SKU</th>
                 <th>Cod</th>
+                <th>Descricao</th>
                 <th>Categoria</th>
                 <th>Atual</th>
                 <th>Minimo</th>
@@ -299,6 +403,7 @@ export function StockTiPage({ user }: { user: User }) {
                 <tr key={item.id} className="border-b">
                   <td className="py-2">{item.sku}</td>
                   <td>{item.cod || "-"}</td>
+                  <td>{item.description || item.category || "-"}</td>
                   <td>{item.category || "-"}</td>
                   <td>{item.current_stock}</td>
                   <td>{item.min_stock}</td>
@@ -307,7 +412,7 @@ export function StockTiPage({ user }: { user: User }) {
               ))}
               {!lowAlerts.length && (
                 <tr>
-                  <td className="py-3 text-slate-500" colSpan={6}>
+                  <td className="py-3 text-slate-500" colSpan={7}>
                     Nenhum item abaixo do estoque minimo.
                   </td>
                 </tr>
@@ -321,7 +426,7 @@ export function StockTiPage({ user }: { user: User }) {
             <h3 className="font-semibold">Base de Produtos TI</h3>
             <input
               className="border rounded-lg px-3 py-1 text-sm"
-              placeholder="Buscar SKU/Cod/Categoria"
+              placeholder="Buscar SKU/Cod/Descricao/Categoria"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onBlur={loadData}
@@ -332,6 +437,7 @@ export function StockTiPage({ user }: { user: User }) {
               <tr className="text-left border-b">
                 <th className="py-2">SKU</th>
                 <th>Cod</th>
+                <th>Descricao</th>
                 <th>Categoria</th>
                 <th>Guias</th>
                 <th>Atual</th>
@@ -343,6 +449,7 @@ export function StockTiPage({ user }: { user: User }) {
                 <tr key={item.id} className="border-b">
                   <td className="py-2">{item.sku}</td>
                   <td>{item.cod || "-"}</td>
+                  <td>{item.description || "-"}</td>
                   <td>{item.category || "-"}</td>
                   <td>{item.guides || "-"}</td>
                   <td>{item.current_stock}</td>
@@ -364,6 +471,7 @@ export function StockTiPage({ user }: { user: User }) {
                 <th>Data Saida</th>
                 <th>SKU</th>
                 <th>Cod</th>
+                <th>Descricao</th>
                 <th>Guia</th>
                 <th>Movimentacao</th>
                 <th>Destino final</th>
@@ -382,6 +490,7 @@ export function StockTiPage({ user }: { user: User }) {
                   <td>{m.movement_date || "-"}</td>
                   <td>{m.sku || "-"}</td>
                   <td>{m.cod || "-"}</td>
+                  <td>{m.description || m.category || "-"}</td>
                   <td>{m.guide || "-"}</td>
                   <td>{m.movement_code || "-"}</td>
                   <td>{m.destination_final || "-"}</td>
