@@ -79,6 +79,7 @@ export function StockTiPage({ user }: { user: User }) {
   const [reportFrom, setReportFrom] = useState(isoDaysAgo(30));
   const [reportTo, setReportTo] = useState(isoToday());
   const [report, setReport] = useState<TiReport | null>(null);
+  const [activeView, setActiveView] = useState<"movement" | "report">("movement");
 
   const [products, setProducts] = useState<TiStockProduct[]>([]);
   const [movements, setMovements] = useState<TiStockMovement[]>([]);
@@ -213,6 +214,12 @@ export function StockTiPage({ user }: { user: User }) {
     saida: Number(item.total_exit || 0)
   }));
 
+  const movementTypeLabel: Record<"entry" | "exit" | "return", string> = {
+    entry: "Entrada",
+    exit: "Saida",
+    return: "Devolucao"
+  };
+
   return (
     <>
       <section className="space-y-4">
@@ -221,8 +228,25 @@ export function StockTiPage({ user }: { user: User }) {
           <p className="text-sm text-slate-600">
             Entrada/Devolucao simples e Saida com formulario completo: ID, Data, Cod, Guia, Saida, Movimentacao e Destino final.
           </p>
+          <div className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setActiveView("movement")}
+              className={`rounded-lg px-3 py-1 text-sm border ${activeView === "movement" ? "bg-slate-900 text-white" : "bg-white"}`}
+            >
+              Movimentacao
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveView("report")}
+              className={`rounded-lg px-3 py-1 text-sm border ${activeView === "report" ? "bg-slate-900 text-white" : "bg-white"}`}
+            >
+              Relatorio de Movimentacao
+            </button>
+          </div>
         </div>
 
+        {activeView === "movement" && (
         <form onSubmit={onImportBase} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
           <h3 className="font-semibold">Configuracao da Base (QR/SKU)</h3>
           <p className="text-sm text-slate-600">
@@ -245,7 +269,9 @@ export function StockTiPage({ user }: { user: User }) {
             </button>
           </div>
         </form>
+        )}
 
+        {activeView === "movement" && (
         <form onSubmit={onRegisterMovement} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
           <h3 className="font-semibold">Movimentacao de Materiais</h3>
           <div className="grid md:grid-cols-12 gap-3">
@@ -261,13 +287,20 @@ export function StockTiPage({ user }: { user: User }) {
                 Escanear
               </button>
             </div>
-            <select className="border rounded-xl px-3 py-2 md:col-span-2" value={movementType} onChange={(e) => setMovementType(e.target.value as "entry" | "exit" | "return")}>
-              <option value="entry">Entrada</option>
-              <option value="exit">Saida</option>
-              <option value="return">Devolucao</option>
-            </select>
+            <div className="md:col-span-3 grid grid-cols-3 gap-1 rounded-xl border p-1">
+              {(["entry", "exit", "return"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setMovementType(type)}
+                  className={`rounded-lg px-2 py-1 text-sm ${movementType === type ? "bg-slate-900 text-white" : "bg-white"}`}
+                >
+                  {movementTypeLabel[type]}
+                </button>
+              ))}
+            </div>
             <input
-              className="border rounded-xl px-3 py-2 md:col-span-2"
+              className="border rounded-xl px-3 py-2 md:col-span-1"
               type="number"
               min={0}
               step="0.01"
@@ -312,10 +345,12 @@ export function StockTiPage({ user }: { user: User }) {
           </div>
           <p className="text-xs text-slate-500">Usuario logado: {user.name}</p>
         </form>
+        )}
 
         {message && <p className="text-sm text-emerald-700">{message}</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
 
+        {activeView === "report" && (
         <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h3 className="font-semibold">Relatorio Estoque TI</h3>
@@ -378,7 +413,9 @@ export function StockTiPage({ user }: { user: User }) {
             </>
           )}
         </div>
+        )}
 
+        {activeView === "movement" && (
         <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Avisos de Estoque Baixo</h3>
@@ -420,7 +457,9 @@ export function StockTiPage({ user }: { user: User }) {
             </tbody>
           </table>
         </div>
+        )}
 
+        {activeView === "movement" && (
         <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Base de Produtos TI</h3>
@@ -459,7 +498,9 @@ export function StockTiPage({ user }: { user: User }) {
             </tbody>
           </table>
         </div>
+        )}
 
+        {activeView === "movement" && (
         <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
           <h3 className="font-semibold mb-3">Ultimas Movimentacoes</h3>
           <table className="w-full text-sm">
@@ -486,7 +527,7 @@ export function StockTiPage({ user }: { user: User }) {
                 <tr key={m.id} className="border-b">
                   <td className="py-2">{m.id.slice(0, 8)}</td>
                   <td>{new Date(m.created_at).toLocaleString("pt-BR")}</td>
-                  <td>{m.movement_type}</td>
+                  <td>{movementTypeLabel[m.movement_type]}</td>
                   <td>{m.movement_date || "-"}</td>
                   <td>{m.sku || "-"}</td>
                   <td>{m.cod || "-"}</td>
@@ -503,6 +544,7 @@ export function StockTiPage({ user }: { user: User }) {
             </tbody>
           </table>
         </div>
+        )}
       </section>
 
       <BarcodeScannerModal
