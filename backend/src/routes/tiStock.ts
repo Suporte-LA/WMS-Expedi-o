@@ -7,11 +7,40 @@ import { authRequired, AuthenticatedRequest } from "../middleware/auth.js";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+const MOVEMENT_CODES = [
+  "B.U 1.1 RECEBIMENTO E ESTOQUE",
+  "B.U 1.1/1.2/1.5 OPERACOES LOGISTICAS",
+  "B.U 1.2 SEPARACAO/EMBARQUE/EMPACOTAMENTO",
+  "B.U 1.3 EXPEDICAO",
+  "B.U 1.3/1.4/1.5 OPERACOES LOGISTICAS",
+  "B.U 1.4 MANUTENCAO E FROTA",
+  "B.U 1.5 SEPARACAO/EMBARQUE/EMPACOTAMENTO",
+  "B.U 2.1 ENTREGAS",
+  "B.U 3.1 ADMINISTRATIVO DE VENDAS",
+  "B.U 3.2 ADMINISTRATIVO DE VENDAS KEY ACCOUNT",
+  "B.U 3.3 FINANCEIRO",
+  "B.U 3.4 GENTE & CULTURA",
+  "B.U 3.5 RELACOES EXTERNAS",
+  "B.U 3.6 SUPORTE TECNICO",
+  "B.U 4 PROMOTORES DE VENDAS",
+  "CONSULTOR DE VENDAS",
+  "DEP. ADMINISTRATIVO",
+  "DEP. GERENCIA",
+  "DEP. VENDAS",
+  "PCP",
+  "SAC",
+  "ESTOQUE TI"
+] as const;
+
 const movementSchema = z.object({
   productRef: z.string().min(1),
   movementType: z.enum(["entry", "exit", "return"]),
   quantity: z.coerce.number().positive(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  movementDate: z.string().optional(),
+  guide: z.string().optional(),
+  movementCode: z.string().optional(),
+  destinationFinal: z.string().optional()
 });
 
 const listSchema = z.object({
@@ -98,6 +127,10 @@ function parseTiBase(buffer: Buffer, filename: string): ImportedProduct[] {
 }
 
 export const tiStockRouter = Router();
+
+tiStockRouter.get("/movement-codes", authRequired, async (_req, res) => {
+  return res.json({ items: MOVEMENT_CODES });
+});
 
 tiStockRouter.get("/products", authRequired, async (req, res) => {
   const parsed = listSchema.safeParse(req.query);
@@ -265,7 +298,17 @@ tiStockRouter.post("/movements", authRequired, async (req: AuthenticatedRequest,
   if (!parsed.success) return res.status(400).json({ message: "Payload invalido." });
   if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
 
-  const { productRef, movementType, quantity, notes } = parsed.data;
+  const { productRef, movementType, quantity, notes, movementDate, guide, movementCode, destinationFinal } = parsed.data;
+  if (movementType === "exit") {
+    if (!movementDate) return res.status(400).json({ message: "Data obrigatoria para saida." });
+    if (!guide?.trim()) return res.status(400).json({ message: "Guia obrigatoria para saida." });
+    if (!movementCode?.trim()) return res.status(400).json({ message: "Movimentacao obrigatoria para saida." });
+    if (!MOVEMENT_CODES.includes(movementCode.trim() as (typeof MOVEMENT_CODES)[number])) {
+      return res.status(400).json({ message: "Codigo de movimentacao invalido." });
+    }
+    if (!destinationFinal?.trim()) return res.status(400).json({ message: "Destino final obrigatorio para saida." });
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -308,12 +351,26 @@ tiStockRouter.post("/movements", authRequired, async (req: AuthenticatedRequest,
     const movement = await client.query(
       `
         INSERT INTO ti_stock_movements (
-          product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name
+          product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
+          movement_date, guide, movement_code, destination_final
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING *
       `,
-      [p.id, movementType, quantity, before, after, notes || null, req.user.id, req.user.name]
+      [
+        p.id,
+        movementType,
+        quantity,
+        before,
+        after,
+        notes || null,
+        req.user.id,
+        req.user.name,
+        movementType === "exit" ? movementDate : new Date().toISOString().slice(0, 10),
+        movementType === "exit" ? guide?.trim() : null,
+        movementType === "exit" ? movementCode?.trim() : null,
+        movementType === "exit" ? destinationFinal?.trim() : null
+      ]
     );
 
     await client.query("COMMIT");
@@ -325,4 +382,3 @@ tiStockRouter.post("/movements", authRequired, async (req: AuthenticatedRequest,
     client.release();
   }
 });
-

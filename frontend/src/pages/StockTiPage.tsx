@@ -1,8 +1,37 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
 import type { TiStockMovement, TiStockProduct, User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
+
+const MOVEMENT_CODE_OPTIONS = [
+  "B.U 1.1 RECEBIMENTO E ESTOQUE",
+  "B.U 1.1/1.2/1.5 OPERACOES LOGISTICAS",
+  "B.U 1.2 SEPARACAO/EMBARQUE/EMPACOTAMENTO",
+  "B.U 1.3 EXPEDICAO",
+  "B.U 1.3/1.4/1.5 OPERACOES LOGISTICAS",
+  "B.U 1.4 MANUTENCAO E FROTA",
+  "B.U 1.5 SEPARACAO/EMBARQUE/EMPACOTAMENTO",
+  "B.U 2.1 ENTREGAS",
+  "B.U 3.1 ADMINISTRATIVO DE VENDAS",
+  "B.U 3.2 ADMINISTRATIVO DE VENDAS KEY ACCOUNT",
+  "B.U 3.3 FINANCEIRO",
+  "B.U 3.4 GENTE & CULTURA",
+  "B.U 3.5 RELACOES EXTERNAS",
+  "B.U 3.6 SUPORTE TECNICO",
+  "B.U 4 PROMOTORES DE VENDAS",
+  "CONSULTOR DE VENDAS",
+  "DEP. ADMINISTRATIVO",
+  "DEP. GERENCIA",
+  "DEP. VENDAS",
+  "PCP",
+  "SAC",
+  "ESTOQUE TI"
+] as const;
+
+function isoToday() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export function StockTiPage({ user }: { user: User }) {
   const [productRef, setProductRef] = useState("");
@@ -11,6 +40,11 @@ export function StockTiPage({ user }: { user: User }) {
   const [quantity, setQuantity] = useState<number | "">("");
   const [notes, setNotes] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
+
+  const [movementDate, setMovementDate] = useState(isoToday());
+  const [guide, setGuide] = useState("");
+  const [movementCode, setMovementCode] = useState("");
+  const [destinationFinal, setDestinationFinal] = useState("");
 
   const [baseFile, setBaseFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -92,17 +126,44 @@ export function StockTiPage({ user }: { user: User }) {
       return;
     }
 
+    if (movementType === "exit") {
+      if (!movementDate) {
+        setError("Data obrigatoria para saida.");
+        return;
+      }
+      if (!guide.trim()) {
+        setError("Guia obrigatoria para saida.");
+        return;
+      }
+      if (!movementCode) {
+        setError("Movimentacao obrigatoria para saida.");
+        return;
+      }
+      if (!destinationFinal.trim()) {
+        setError("Destino final obrigatorio para saida.");
+        return;
+      }
+    }
+
     setSavingMovement(true);
     try {
       await api.post("/ti-stock/movements", {
         productRef: productRef.trim(),
         movementType,
         quantity: Number(quantity),
-        notes: notes.trim() || undefined
+        notes: notes.trim() || undefined,
+        movementDate: movementType === "exit" ? movementDate : undefined,
+        guide: movementType === "exit" ? guide.trim() : undefined,
+        movementCode: movementType === "exit" ? movementCode : undefined,
+        destinationFinal: movementType === "exit" ? destinationFinal.trim() : undefined
       });
       setMessage("Movimento registrado com sucesso.");
       setQuantity("");
       setNotes("");
+      setGuide("");
+      setMovementCode("");
+      setDestinationFinal("");
+      setMovementDate(isoToday());
       await lookupProduct(productRef);
       await loadData();
     } catch (err: any) {
@@ -118,7 +179,7 @@ export function StockTiPage({ user }: { user: User }) {
         <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
           <h2 className="font-semibold">Estoque TI</h2>
           <p className="text-sm text-slate-600">
-            Controle de entrada, saida e devolucao de materiais TI com alerta de estoque baixo.
+            Entrada/Devolucao simples e Saida com formulario completo: ID, Data, Cod, Guia, Saida, Movimentacao e Destino final.
           </p>
         </div>
 
@@ -170,7 +231,7 @@ export function StockTiPage({ user }: { user: User }) {
               type="number"
               min={0}
               step="0.01"
-              placeholder="Quantidade"
+              placeholder={movementType === "exit" ? "Saida" : "Quantidade"}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value === "" ? "" : Number(e.target.value))}
             />
@@ -184,6 +245,22 @@ export function StockTiPage({ user }: { user: User }) {
               {savingMovement ? "..." : "Lancar"}
             </button>
           </div>
+
+          {movementType === "exit" && (
+            <div className="grid md:grid-cols-6 gap-3">
+              <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="ID" value="Gerado automaticamente" readOnly />
+              <input className="border rounded-xl px-3 py-2" type="date" value={movementDate} onChange={(e) => setMovementDate(e.target.value)} />
+              <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Cod" value={selected?.cod || ""} readOnly />
+              <input className="border rounded-xl px-3 py-2" placeholder="Guia" value={guide} onChange={(e) => setGuide(e.target.value)} />
+              <select className="border rounded-xl px-3 py-2" value={movementCode} onChange={(e) => setMovementCode(e.target.value)}>
+                <option value="">Movimentacao</option>
+                {MOVEMENT_CODE_OPTIONS.map((code) => (
+                  <option key={code} value={code}>{code}</option>
+                ))}
+              </select>
+              <input className="border rounded-xl px-3 py-2" placeholder="Destino final" value={destinationFinal} onChange={(e) => setDestinationFinal(e.target.value)} />
+            </div>
+          )}
 
           <div className="grid md:grid-cols-6 gap-3">
             <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="SKU" value={selected?.sku || ""} readOnly />
@@ -281,10 +358,15 @@ export function StockTiPage({ user }: { user: User }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left border-b">
-                <th className="py-2">Data/Hora</th>
+                <th className="py-2">ID</th>
+                <th>Data/Hora</th>
                 <th>Tipo</th>
+                <th>Data Saida</th>
                 <th>SKU</th>
                 <th>Cod</th>
+                <th>Guia</th>
+                <th>Movimentacao</th>
+                <th>Destino final</th>
                 <th>Qtd</th>
                 <th>Antes</th>
                 <th>Depois</th>
@@ -294,10 +376,15 @@ export function StockTiPage({ user }: { user: User }) {
             <tbody>
               {movements.map((m) => (
                 <tr key={m.id} className="border-b">
-                  <td className="py-2">{new Date(m.created_at).toLocaleString("pt-BR")}</td>
+                  <td className="py-2">{m.id.slice(0, 8)}</td>
+                  <td>{new Date(m.created_at).toLocaleString("pt-BR")}</td>
                   <td>{m.movement_type}</td>
+                  <td>{m.movement_date || "-"}</td>
                   <td>{m.sku || "-"}</td>
                   <td>{m.cod || "-"}</td>
+                  <td>{m.guide || "-"}</td>
+                  <td>{m.movement_code || "-"}</td>
+                  <td>{m.destination_final || "-"}</td>
                   <td>{m.quantity}</td>
                   <td>{m.stock_before}</td>
                   <td>{m.stock_after}</td>
@@ -320,4 +407,3 @@ export function StockTiPage({ user }: { user: User }) {
     </>
   );
 }
-

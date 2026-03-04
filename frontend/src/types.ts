@@ -126,6 +126,10 @@ export type TiStockMovement = {
   notes?: string | null;
   created_by_name: string;
   created_at: string;
+  movement_date?: string | null;
+  guide?: string | null;
+  movement_code?: string | null;
+  destination_final?: string | null;
   sku?: string;
   cod?: string | null;
   category?: string | null;
