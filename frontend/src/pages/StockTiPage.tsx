@@ -1,0 +1,323 @@
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { api } from "../lib/api";
+import type { TiStockMovement, TiStockProduct, User } from "../types";
+import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
+
+export function StockTiPage({ user }: { user: User }) {
+  const [productRef, setProductRef] = useState("");
+  const [selected, setSelected] = useState<TiStockProduct | null>(null);
+  const [movementType, setMovementType] = useState<"entry" | "exit" | "return">("entry");
+  const [quantity, setQuantity] = useState<number | "">("");
+  const [notes, setNotes] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  const [baseFile, setBaseFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [savingMovement, setSavingMovement] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+
+  const [products, setProducts] = useState<TiStockProduct[]>([]);
+  const [movements, setMovements] = useState<TiStockMovement[]>([]);
+  const [lowAlerts, setLowAlerts] = useState<TiStockProduct[]>([]);
+
+  async function loadData() {
+    const [productsRes, movementsRes, alertsRes] = await Promise.all([
+      api.get(`/ti-stock/products?page=1&pageSize=50${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ""}`),
+      api.get(`/ti-stock/movements?page=1&pageSize=30`),
+      api.get("/ti-stock/alerts-low")
+    ]);
+    setProducts(productsRes.data.items || []);
+    setMovements(movementsRes.data.items || []);
+    setLowAlerts(alertsRes.data.items || []);
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function lookupProduct(value: string) {
+    const clean = value.trim();
+    if (!clean) {
+      setSelected(null);
+      return;
+    }
+    try {
+      const { data } = await api.get(`/ti-stock/lookup/${encodeURIComponent(clean)}`);
+      setSelected(data);
+    } catch {
+      setSelected(null);
+    }
+  }
+
+  async function onImportBase(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+    if (!baseFile) {
+      setError("Selecione a base de produtos TI.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", baseFile);
+      const { data } = await api.post("/ti-stock/import-base", form, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      setMessage(
+        `Base importada. Processadas: ${data.summary.processedRows}, Inseridas: ${data.summary.insertedRows}, Atualizadas: ${data.summary.updatedRows}`
+      );
+      setBaseFile(null);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Falha ao importar base TI.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function onRegisterMovement(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+    if (!productRef.trim()) {
+      setError("Bipe ou digite SKU/Cod.");
+      return;
+    }
+    if (quantity === "" || Number(quantity) <= 0) {
+      setError("Quantidade deve ser maior que zero.");
+      return;
+    }
+
+    setSavingMovement(true);
+    try {
+      await api.post("/ti-stock/movements", {
+        productRef: productRef.trim(),
+        movementType,
+        quantity: Number(quantity),
+        notes: notes.trim() || undefined
+      });
+      setMessage("Movimento registrado com sucesso.");
+      setQuantity("");
+      setNotes("");
+      await lookupProduct(productRef);
+      await loadData();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Falha ao registrar movimento.");
+    } finally {
+      setSavingMovement(false);
+    }
+  }
+
+  return (
+    <>
+      <section className="space-y-4">
+        <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
+          <h2 className="font-semibold">Estoque TI</h2>
+          <p className="text-sm text-slate-600">
+            Controle de entrada, saida e devolucao de materiais TI com alerta de estoque baixo.
+          </p>
+        </div>
+
+        <form onSubmit={onImportBase} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+          <h3 className="font-semibold">Configuracao da Base (QR/SKU)</h3>
+          <p className="text-sm text-slate-600">
+            Envie a planilha com colunas: SKU, Cod, Categoria, Guias, Entrada, Saida, Devolucao, Estoque Final, Estoque Minimo.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="ti-base"
+              className="hidden"
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => setBaseFile(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="ti-base" className="rounded-xl border px-3 py-2 cursor-pointer">
+              Escolher base TI
+            </label>
+            <span className="text-sm text-slate-500">{baseFile?.name || "Nenhum arquivo selecionado"}</span>
+            <button type="submit" disabled={importing} className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold disabled:opacity-50">
+              {importing ? "Importando..." : "Importar Base TI"}
+            </button>
+          </div>
+        </form>
+
+        <form onSubmit={onRegisterMovement} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+          <h3 className="font-semibold">Movimentacao de Materiais</h3>
+          <div className="grid md:grid-cols-12 gap-3">
+            <div className="md:col-span-4 flex gap-2">
+              <input
+                className="border rounded-xl px-3 py-2 flex-1"
+                placeholder="SKU ou Cod (bipado)"
+                value={productRef}
+                onChange={(e) => setProductRef(e.target.value)}
+                onBlur={() => lookupProduct(productRef)}
+              />
+              <button type="button" className="rounded-xl border px-3" onClick={() => setScannerOpen(true)}>
+                Escanear
+              </button>
+            </div>
+            <select className="border rounded-xl px-3 py-2 md:col-span-2" value={movementType} onChange={(e) => setMovementType(e.target.value as "entry" | "exit" | "return")}>
+              <option value="entry">Entrada</option>
+              <option value="exit">Saida</option>
+              <option value="return">Devolucao</option>
+            </select>
+            <input
+              className="border rounded-xl px-3 py-2 md:col-span-2"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="Quantidade"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value === "" ? "" : Number(e.target.value))}
+            />
+            <input
+              className="border rounded-xl px-3 py-2 md:col-span-3"
+              placeholder="Observacao (opcional)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+            <button type="submit" disabled={savingMovement} className="rounded-xl bg-slate-900 text-white px-3 py-2 font-semibold md:col-span-1 disabled:opacity-50">
+              {savingMovement ? "..." : "Lancar"}
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-6 gap-3">
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="SKU" value={selected?.sku || ""} readOnly />
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Cod" value={selected?.cod || ""} readOnly />
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Categoria" value={selected?.category || ""} readOnly />
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Guias" value={selected?.guides || ""} readOnly />
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Estoque Atual" value={selected?.current_stock ?? ""} readOnly />
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Estoque Minimo" value={selected?.min_stock ?? ""} readOnly />
+          </div>
+          <p className="text-xs text-slate-500">Usuario logado: {user.name}</p>
+        </form>
+
+        {message && <p className="text-sm text-emerald-700">{message}</p>}
+        {error && <p className="text-sm text-red-700">{error}</p>}
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Avisos de Estoque Baixo</h3>
+            <button type="button" className="rounded-lg border px-3 py-1 text-sm" onClick={loadData}>
+              Atualizar
+            </button>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2">SKU</th>
+                <th>Cod</th>
+                <th>Categoria</th>
+                <th>Atual</th>
+                <th>Minimo</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lowAlerts.map((item) => (
+                <tr key={item.id} className="border-b">
+                  <td className="py-2">{item.sku}</td>
+                  <td>{item.cod || "-"}</td>
+                  <td>{item.category || "-"}</td>
+                  <td>{item.current_stock}</td>
+                  <td>{item.min_stock}</td>
+                  <td className="text-red-700 font-semibold">Baixo</td>
+                </tr>
+              ))}
+              {!lowAlerts.length && (
+                <tr>
+                  <td className="py-3 text-slate-500" colSpan={6}>
+                    Nenhum item abaixo do estoque minimo.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Base de Produtos TI</h3>
+            <input
+              className="border rounded-lg px-3 py-1 text-sm"
+              placeholder="Buscar SKU/Cod/Categoria"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onBlur={loadData}
+            />
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2">SKU</th>
+                <th>Cod</th>
+                <th>Categoria</th>
+                <th>Guias</th>
+                <th>Atual</th>
+                <th>Minimo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((item) => (
+                <tr key={item.id} className="border-b">
+                  <td className="py-2">{item.sku}</td>
+                  <td>{item.cod || "-"}</td>
+                  <td>{item.category || "-"}</td>
+                  <td>{item.guides || "-"}</td>
+                  <td>{item.current_stock}</td>
+                  <td>{item.min_stock}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
+          <h3 className="font-semibold mb-3">Ultimas Movimentacoes</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2">Data/Hora</th>
+                <th>Tipo</th>
+                <th>SKU</th>
+                <th>Cod</th>
+                <th>Qtd</th>
+                <th>Antes</th>
+                <th>Depois</th>
+                <th>Usuario</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.map((m) => (
+                <tr key={m.id} className="border-b">
+                  <td className="py-2">{new Date(m.created_at).toLocaleString("pt-BR")}</td>
+                  <td>{m.movement_type}</td>
+                  <td>{m.sku || "-"}</td>
+                  <td>{m.cod || "-"}</td>
+                  <td>{m.quantity}</td>
+                  <td>{m.stock_before}</td>
+                  <td>{m.stock_after}</td>
+                  <td>{m.created_by_name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <BarcodeScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onDetected={(value) => {
+          setProductRef(value);
+          lookupProduct(value);
+        }}
+      />
+    </>
+  );
+}
+

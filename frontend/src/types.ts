@@ -91,3 +91,30 @@ export type MontagemSpRecord = {
   notes?: string | null;
   created_at: string;
 };
+
+export type TiStockProduct = {
+  id: string;
+  sku: string;
+  cod?: string | null;
+  category?: string | null;
+  guides?: string | null;
+  current_stock: number;
+  min_stock: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TiStockMovement = {
+  id: string;
+  product_id: string;
+  movement_type: "entry" | "exit" | "return";
+  quantity: number;
+  stock_before: number;
+  stock_after: number;
+  notes?: string | null;
+  created_by_name: string;
+  created_at: string;
+  sku?: string;
+  cod?: string | null;
+  category?: string | null;
+};

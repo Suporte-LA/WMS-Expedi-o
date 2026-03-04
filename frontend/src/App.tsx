@@ -13,8 +13,9 @@ import { ErrorReportsPage } from "./pages/ErrorReportsPage";
 import { ConfigurationsPage } from "./pages/ConfigurationsPage";
 import { MontagemSpPage } from "./pages/MontagemSpPage";
 import { StockPage } from "./pages/StockPage";
+import { StockTiPage } from "./pages/StockTiPage";
 
-type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings" | "/estoque";
+type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings" | "/estoque" | "/estoque-ti";
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
@@ -28,7 +29,10 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/users", label: "Usuarios", screen: "users" }
 ];
 
-const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
+const STOCK_NAV_ITEMS: NavItem[] = [
+  { to: "/estoque", label: "Estoque" },
+  { to: "/estoque-ti", label: "Estoque TI" }
+];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -92,7 +96,7 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
 }
 
 function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"], workspace: Workspace): AppRoute {
-  if (workspace === "estoque") return "/estoque";
+  if (workspace === "estoque") return "/estoque-ti";
   const nav = buildNav(role, permissions, workspace);
   if (nav.length) return nav[0].to;
   if (role === "admin") return "/settings";
@@ -126,9 +130,9 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   }, [location.pathname]);
 
   useEffect(() => {
-    const inStockPath = location.pathname === "/estoque";
+    const inStockPath = location.pathname === "/estoque" || location.pathname === "/estoque-ti";
     if (activeWorkspace === "estoque" && !inStockPath) {
-      navigate("/estoque", { replace: true });
+      navigate("/estoque-ti", { replace: true });
       return;
     }
     if (activeWorkspace === "expedicao" && inStockPath) {
@@ -234,6 +238,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
         ) : (
           <Routes>
             <Route path="/estoque" element={activeWorkspace === "estoque" ? <StockPage /> : <Navigate to={defaultRoute} replace />} />
+            <Route path="/estoque-ti" element={activeWorkspace === "estoque" ? <StockTiPage user={user} /> : <Navigate to={defaultRoute} replace />} />
             <Route
               path="/"
               element={

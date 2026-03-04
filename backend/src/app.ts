@@ -10,6 +10,7 @@ import { descentsRouter } from "./routes/descents.js";
 import { errorsRouter } from "./routes/errors.js";
 import { settingsRouter } from "./routes/settings.js";
 import { montagemSpRouter } from "./routes/montagemSp.js";
+import { tiStockRouter } from "./routes/tiStock.js";
 import { uploadsDir } from "./services/uploads.js";
 
 export const app = express();
@@ -30,5 +31,6 @@ app.use("/descents", descentsRouter);
 app.use("/errors", errorsRouter);
 app.use("/settings", settingsRouter);
 app.use("/montagem-sp", montagemSpRouter);
+app.use("/ti-stock", tiStockRouter);
 
 app.use(errorHandler);
