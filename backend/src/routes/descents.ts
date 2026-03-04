@@ -15,6 +15,8 @@ const listSchema = z.object({
   to: z.string().optional(),
   user: z.string().optional(),
   order: z.string().optional(),
+  route: z.string().optional(),
+  lot: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(30)
 });
@@ -107,7 +109,7 @@ descentsRouter.get("/", authRequired, requireScreenAccess("descents"), async (re
     return res.status(400).json({ message: "Query invalida." });
   }
 
-  const { from, to, user, order, page, pageSize } = parsed.data;
+  const { from, to, user, order, route, lot, page, pageSize } = parsed.data;
   const filters: string[] = [];
   const values: unknown[] = [];
 
@@ -120,12 +122,20 @@ descentsRouter.get("/", authRequired, requireScreenAccess("descents"), async (re
     filters.push(`d.work_date <= $${values.length}::date`);
   }
   if (user) {
-    values.push(user);
+    values.push(`%${user}%`);
     filters.push(`d.descended_by_name ILIKE $${values.length}`);
   }
   if (order) {
     values.push(`%${order}%`);
     filters.push(`d.order_number ILIKE $${values.length}`);
+  }
+  if (route) {
+    values.push(`%${route}%`);
+    filters.push(`COALESCE(d.route, '') ILIKE $${values.length}`);
+  }
+  if (lot) {
+    values.push(`%${lot}%`);
+    filters.push(`COALESCE(d.lot, '') ILIKE $${values.length}`);
   }
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";

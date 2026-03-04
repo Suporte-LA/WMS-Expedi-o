@@ -8,6 +8,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { ImportsPage } from "./pages/ImportsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { DescentsPage } from "./pages/DescentsPage";
+import { DescentReportsPage } from "./pages/DescentReportsPage";
 import { ErrorCheckPage } from "./pages/ErrorCheckPage";
 import { ErrorReportsPage } from "./pages/ErrorReportsPage";
 import { ConfigurationsPage } from "./pages/ConfigurationsPage";
@@ -15,13 +16,14 @@ import { MontagemSpPage } from "./pages/MontagemSpPage";
 import { StockPage } from "./pages/StockPage";
 import { StockTiPage } from "./pages/StockTiPage";
 
-type AppRoute = "/" | "/descents" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings" | "/estoque" | "/estoque-ti";
+type AppRoute = "/" | "/descents" | "/descent-reports" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings" | "/estoque" | "/estoque-ti";
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
 const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", screen: "dashboard" },
   { to: "/descents", label: "Descer Pedidos", screen: "descents" },
+  { to: "/descent-reports", label: "Relatorio Descidas", screen: "descents" },
   { to: "/error-check", label: "Conferencia Erros", screen: "error-check" },
   { to: "/error-reports", label: "Relatorio Erros", screen: "error-reports" },
   { to: "/montagem-sp", label: "Montagem SP", screen: "montagem-sp" },
@@ -36,6 +38,7 @@ const ALL_WORKSPACES: Workspace[] = ["expedicao", "estoque", "estoque-ti"];
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
   "/descents": "descents",
+  "/descent-reports": "descents",
   "/error-check": "error-check",
   "/error-reports": "error-reports",
   "/montagem-sp": "montagem-sp",
@@ -309,6 +312,14 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               element={
                 activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/descents", permissions)
                   ? <DescentsPage user={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
+            />
+            <Route
+              path="/descent-reports"
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/descent-reports", permissions)
+                  ? <DescentReportsPage />
                   : <Navigate to={defaultRoute} replace />
               }
             />
