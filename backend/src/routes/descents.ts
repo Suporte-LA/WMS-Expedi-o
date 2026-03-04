@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
 import { pool } from "../db.js";
-import { imageUpload } from "../services/uploads.js";
+import { imageUpload, persistUploadedImage } from "../services/uploads.js";
 import { writeAuditLog } from "../services/audit.js";
 
 const createSchema = z.object({
@@ -47,7 +47,7 @@ descentsRouter.post(
 
     const workDate = parsed.data.workDate || new Date().toISOString().slice(0, 10);
     const normalizedOrder = normalizeOrderNumber(parsed.data.orderNumber);
-    const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+    const imagePath = await persistUploadedImage(req.file, "descents");
     const userInfo = await pool.query(`SELECT name, pen_color FROM users WHERE id = $1 LIMIT 1`, [req.user.id]);
     const userName = userInfo.rows[0]?.name || req.user.name;
     const userPenColor = userInfo.rows[0]?.pen_color || req.user.pen_color || "Blue";

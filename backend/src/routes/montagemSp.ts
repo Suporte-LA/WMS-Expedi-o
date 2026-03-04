@@ -3,7 +3,7 @@ import { z } from "zod";
 import XLSX from "xlsx";
 import { pool } from "../db.js";
 import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
-import { imageUpload } from "../services/uploads.js";
+import { imageUpload, persistUploadedImage } from "../services/uploads.js";
 import { writeAuditLog } from "../services/audit.js";
 
 const boolLike = z
@@ -115,6 +115,8 @@ montagemSpRouter.post(
 
     const durationMinutes = computeDuration(data.startTime, data.endTime, data.pauseMinutes || 0);
 
+    const photoPath = req.file ? await persistUploadedImage(req.file, "montagem-sp") : null;
+
     const result = await pool.query(
       `
         INSERT INTO montagem_sp (
@@ -146,7 +148,7 @@ montagemSpRouter.post(
         data.isoporQty ?? null,
         hasHelper,
         hasHelper ? data.helperName || null : null,
-        req.file ? `/uploads/${req.file.filename}` : null,
+        photoPath,
         data.notes || null,
         req.user.id
       ]

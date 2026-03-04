@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
-import { imageUpload } from "../services/uploads.js";
+import { imageUpload, persistUploadedImage } from "../services/uploads.js";
 import { pool } from "../db.js";
 import { writeAuditLog } from "../services/audit.js";
 import XLSX from "xlsx";
@@ -51,7 +51,7 @@ errorsRouter.post(
 
   const descentRow = descent.rows[0];
   const reportDate = parsed.data.reportDate || new Date().toISOString().slice(0, 10);
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+  const imagePath = req.file ? await persistUploadedImage(req.file, "errors") : null;
 
   const result = await pool.query(
     `
