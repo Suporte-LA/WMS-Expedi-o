@@ -98,22 +98,37 @@ function parseUnifiedHistory(buffer: Buffer, sheetName?: string) {
   const sheet = workbook.Sheets[sheetName || workbook.SheetNames[0]];
   if (!sheet) return [];
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  const isDateLike = (value: string) => {
+    if (!value) return false;
+    if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(value)) return true;
+    const parsed = new Date(value);
+    return !Number.isNaN(parsed.getTime());
+  };
   return rows
     .map((row) => {
       const submittedAt =
         new Date(textLike(pickField(row, ["Data/Hora", "Data Hora", "Data", "Carimbo de data/hora"]))) || new Date();
       const operation = textLike(pickField(row, ["Cod Vendedor", "Codigo", "Cod", "Operacao", "Operação", "Nome"]));
       const name = textLike(pickField(row, ["Nome", "Nome.1"])) || operation;
-      const maintenanceItem = textLike(pickField(row, ["Trocado", "Tipo", "Troca", "Tipo de Manutenção", "Manutencao", "Manutenção", "O que foi trocado"]));
+      const tipo = textLike(pickField(row, ["Tipo"]));
+      const trocado = textLike(pickField(row, ["Trocado"]));
+      const maintenanceFromTipo = [tipo, trocado].filter(Boolean).join(" ").trim();
+      const trocaField = textLike(pickField(row, ["Troca"]));
+      let maintenanceItem =
+        maintenanceFromTipo ||
+        (isDateLike(trocaField) ? "" : trocaField) ||
+        textLike(pickField(row, ["Tipo de Manutenção", "Manutencao", "Manutenção", "O que foi trocado"]));
+      if (maintenanceItem && maintenanceItem.toLowerCase() === "nan") maintenanceItem = "";
       const model = textLike(pickField(row, ["Modelo", "Modelos"]));
       const model2 = textLike(pickField(row, ["Modelo 2", "Modelos 2", "Unnamed: 10", "Unnamed: 9"]));
       if (!operation || !maintenanceItem) return null;
       const key = maintenanceItem.toLowerCase();
+      const tipoKey = tipo.toLowerCase();
       let phoneModel = "";
       let tabletModel = "";
-      if (key.includes("tablet")) {
+      if (tipoKey.includes("tablet") || key.includes("tablet")) {
         tabletModel = model || model2;
-      } else if (key.includes("celular")) {
+      } else if (tipoKey.includes("celular") || key.includes("celular")) {
         phoneModel = model || model2;
       } else {
         phoneModel = model;
@@ -137,7 +152,6 @@ function parseUnifiedHistory(buffer: Buffer, sheetName?: string) {
       tabletModel: string | null;
     }>;
 }
-
 function resolveLimitKey(value: string): string {
   const key = value.toLowerCase();
   if (key.includes("pelicula")) return "pelicula";
@@ -545,3 +559,4 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     monthly: monthSummary.rows
   });
 });
+
