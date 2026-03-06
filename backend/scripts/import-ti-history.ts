@@ -16,6 +16,24 @@ function toText(value: unknown): string {
   return value == null ? "" : String(value).trim();
 }
 
+function normalizeHeader(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function pickField(row: Record<string, unknown>, aliases: string[]) {
+  const map = new Map<string, unknown>();
+  Object.keys(row).forEach((key) => map.set(normalizeHeader(key), row[key]));
+  for (const alias of aliases) {
+    const found = map.get(normalizeHeader(alias));
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 function parseDate(value: unknown): Date | null {
   if (!value) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
@@ -83,23 +101,26 @@ function parseMonthRows(buffer: Buffer): Row[] {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
     if (!rows.length) continue;
 
-    const hasMonthlyCols = rows.some((row) => row["Data/Hora"] || row["Cod Vendedor"]);
+    const hasMonthlyCols = rows.some((row) =>
+      pickField(row, ["Data/Hora", "Data Hora", "Data"]) || pickField(row, ["Cod Vendedor", "Codigo", "Cod", "Operacao", "Operação"])
+    );
     if (!hasMonthlyCols) continue;
 
     for (const row of rows) {
-      const submittedAt = parseDate(row["Data/Hora"]) || parseDate(row["Data"]) || new Date();
-      const operation = toText(row["Cod Vendedor"]) || toText(row["Operacao"]) || toText(row["Operação"]);
-      const name = toText(row["Nome"]) || operation;
+      const submittedAt =
+        parseDate(pickField(row, ["Data/Hora", "Data Hora", "Data"])) ||
+        new Date();
+      const operation =
+        toText(pickField(row, ["Cod Vendedor", "Codigo", "Cod", "Operacao", "Operação"])) ||
+        "";
+      const name = toText(pickField(row, ["Nome"])) || operation;
       const maintenanceItem =
-        toText(row["Trocado"]) ||
-        toText(row["Tipo"]) ||
-        toText(row["Troca"]) ||
-        toText(row["Tipo de Manutenção"]) ||
-        toText(row["Manutenção"]);
+        toText(pickField(row, ["Trocado", "Tipo", "Troca", "Tipo de Manutenção", "Manutencao", "Manutenção"])) ||
+        "";
       if (!operation || !maintenanceItem) continue;
 
-      const rawModel = toText(row["Modelo"]) || toText(row["Modelos"]);
-      const extraModel = toText(row["Unnamed: 10"]);
+      const rawModel = toText(pickField(row, ["Modelo", "Modelos"]));
+      const extraModel = toText(pickField(row, ["Unnamed: 10", "Modelo 2", "Modelos 2"]));
       const key = maintenanceItem.toLowerCase();
       let phoneModel = "";
       let tabletModel = "";
