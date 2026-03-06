@@ -89,6 +89,16 @@ function parseTimeUsage(buffer: Buffer, sheetName?: string) {
     .filter((row) => row.item && Number.isFinite(row.months) && row.months > 0);
 }
 
+function resolveLimitKey(value: string): string {
+  const key = value.toLowerCase();
+  if (key.includes("pelicula")) return "pelicula";
+  if (key.includes("película")) return "pelicula";
+  if (key.includes("capinha")) return "capinha";
+  if (key.includes("tablet")) return "tablet";
+  if (key.includes("celular")) return "celular";
+  return key.trim();
+}
+
 function requireTiAccess(req: AuthenticatedRequest): boolean {
   if (!req.user) return false;
   if (req.user.role === "admin") return true;
@@ -392,6 +402,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
   );
 
   const ref = new Date(refDate);
+  const minStart = from ? new Date(from) : null;
   const grouped = new Map<string, { name: string; operation: string; item: string; dates: Date[] }>();
   for (const row of windowed.rows as Array<{ name: string; operation: string; maintenance_item: string; submitted_at: string }>) {
     const key = `${row.name}||${row.operation}||${row.maintenance_item}`;
@@ -401,11 +412,12 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
   }
 
   const limitRows = Array.from(grouped.values()).map((row) => {
-    const key = String(row.item || "").toLowerCase();
+    const key = resolveLimitKey(String(row.item || ""));
     const limit = limitMap.get(key) || { months: 6, max: 1 };
     const start = new Date(ref);
     start.setMonth(start.getMonth() - limit.months);
-    const count = row.dates.filter((d) => d >= start && d <= ref).length;
+    const effectiveStart = minStart && minStart > start ? minStart : start;
+    const count = row.dates.filter((d) => d >= effectiveStart && d <= ref).length;
     return {
       name: row.name,
       operation: row.operation,
