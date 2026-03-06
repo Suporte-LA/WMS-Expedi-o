@@ -33,6 +33,9 @@ type AppRoute =
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
+const LAST_ROUTE_KEY = "wms:lastRoute";
+const LAST_WORKSPACE_KEY = "wms:lastWorkspace";
+
 const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", screen: "dashboard" },
   { to: "/descents", label: "Descer Pedidos", screen: "descents" },
@@ -203,6 +206,42 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
       navigate(defaultRouteFor(user.role, permissions, "expedicao"), { replace: true });
     }
   }, [activeWorkspace, location.pathname, navigate, user.role, permissions]);
+
+  useEffect(() => {
+    if (location.pathname === "/login") return;
+    localStorage.setItem(LAST_ROUTE_KEY, location.pathname);
+    localStorage.setItem(LAST_WORKSPACE_KEY, activeWorkspace);
+  }, [location.pathname, activeWorkspace]);
+
+  useEffect(() => {
+    if (location.pathname !== "/") return;
+    const storedRoute = localStorage.getItem(LAST_ROUTE_KEY) as AppRoute | null;
+    const storedWorkspace = localStorage.getItem(LAST_WORKSPACE_KEY) as Workspace | null;
+    if (!storedRoute || !storedWorkspace) return;
+
+    if (storedWorkspace !== activeWorkspace) {
+      if (canSwitchWorkspace && workspaceOptions.includes(storedWorkspace)) {
+        setActiveWorkspace(storedWorkspace);
+      }
+      return;
+    }
+
+    if (storedWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, storedRoute, permissions)) {
+      navigate(storedRoute, { replace: true });
+      return;
+    }
+    if (storedWorkspace === "estoque" && storedRoute === "/estoque") {
+      navigate("/estoque", { replace: true });
+      return;
+    }
+    if (storedWorkspace === "estoque-ti" && storedRoute === "/estoque-ti") {
+      navigate("/estoque-ti", { replace: true });
+      return;
+    }
+    if (storedWorkspace === "ti" && storedRoute === "/ti") {
+      navigate("/ti", { replace: true });
+    }
+  }, [location.pathname, activeWorkspace, canSwitchWorkspace, workspaceOptions, navigate, permissions, user.role]);
 
   return (
     <div className="min-h-screen">
