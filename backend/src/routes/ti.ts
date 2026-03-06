@@ -451,21 +451,6 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const refDate = to || new Date().toISOString().slice(0, 10);
 
-  const limits = await pool.query(
-    `
-      SELECT item, months_limit, max_count
-      FROM ti_device_limits
-    `
-  );
-  const limitMap = new Map<string, { months: number; max: number }>();
-  let maxMonths = 6;
-  for (const row of limits.rows) {
-    const months = Number(row.months_limit);
-    const max = Number(row.max_count);
-    limitMap.set(String(row.item).toLowerCase(), { months, max });
-    if (months > maxMonths) maxMonths = months;
-  }
-
   const baseFilters: string[] = [];
   const baseValues: unknown[] = [];
   if (name?.trim()) {
@@ -480,24 +465,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     baseValues.push(`%${item.trim()}%`);
     baseFilters.push(`r.maintenance_item ILIKE $${baseValues.length}`);
   }
-  baseValues.push(refDate);
-  baseValues.push(maxMonths);
-  const baseWhere = baseFilters.length ? `WHERE ${baseFilters.join(" AND ")} AND` : "WHERE";
-
-  const windowed = await pool.query(
-    `
-      SELECT
-        r.name,
-        r.operation,
-        r.maintenance_item,
-        r.submitted_at
-      FROM ti_device_records r
-      ${baseWhere} r.submitted_at >= ($${baseValues.length - 1}::date - ($${baseValues.length}::int || ' months')::interval)
-        AND r.submitted_at::date <= $${baseValues.length - 1}::date
-      ORDER BY r.submitted_at DESC
-    `,
-    baseValues
-  );
+  const baseWhere = baseFilters.length ? `WHERE ${baseFilters.join(" AND ")}` : "";
 
   const monthSummary = await pool.query(
     `
@@ -514,46 +482,66 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     `,
     values
   );
-
-  const ref = new Date(refDate);
-  const refEnd = new Date(ref);
-  refEnd.setHours(23, 59, 59, 999);
-  const minStart = from ? new Date(from) : null;
-  const grouped = new Map<string, { name: string; operation: string; item: string; dates: Date[] }>();
-  for (const row of windowed.rows as Array<{ name: string; operation: string; maintenance_item: string; submitted_at: string }>) {
-    const key = `${row.name}||${row.operation}||${row.maintenance_item}`;
-    const bucket = grouped.get(key) || { name: row.name, operation: row.operation, item: row.maintenance_item, dates: [] };
-    bucket.dates.push(new Date(row.submitted_at));
-    grouped.set(key, bucket);
+  const limitValues = [...baseValues, refDate];
+  if (from) {
+    limitValues.push(from);
   }
+  const limitRowsResult = await pool.query(
+    `
+      WITH base AS (
+        SELECT
+          r.name,
+          r.operation,
+          r.maintenance_item,
+          r.submitted_at,
+          CASE
+            WHEN lower(r.maintenance_item) LIKE '%pelicula%' THEN 'pelicula'
+            WHEN lower(r.maintenance_item) LIKE '%capinha%' THEN 'capinha'
+            WHEN lower(r.maintenance_item) LIKE '%tablet%' THEN 'tablet'
+            WHEN lower(r.maintenance_item) LIKE '%celular%' THEN 'celular'
+            ELSE lower(r.maintenance_item)
+          END AS limit_key
+        FROM ti_device_records r
+        ${baseWhere}
+      )
+      SELECT
+        b.name,
+        b.operation,
+        b.maintenance_item,
+        MAX(b.submitted_at) AS last_date,
+        COALESCE(l.months_limit, 6) AS months_limit,
+        COALESCE(l.max_count, 1) AS max_count,
+        COUNT(*) FILTER (
+          WHERE b.submitted_at::date >= GREATEST(
+            ($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6))),
+            ${from ? `($${limitValues.length + 1}::date)` : `($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6)))`}
+          )
+          AND b.submitted_at::date <= $${limitValues.length}::date
+        )::int AS total_count
+      FROM base b
+      LEFT JOIN ti_device_limits l ON l.item = b.limit_key
+      GROUP BY b.name, b.operation, b.maintenance_item, l.months_limit, l.max_count
+      ORDER BY
+        CASE
+          WHEN COUNT(*) FILTER (
+            WHERE b.submitted_at::date >= GREATEST(
+              ($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6))),
+              ${from ? `($${limitValues.length + 1}::date)` : `($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6)))`}
+            )
+            AND b.submitted_at::date <= $${limitValues.length}::date
+          ) > COALESCE(l.max_count, 1) THEN 0 ELSE 1
+        END,
+        b.operation,
+        b.name,
+        b.maintenance_item
+    `,
+    limitValues
+  );
 
-  const limitRows = Array.from(grouped.values()).map((row) => {
-    const key = resolveLimitKey(String(row.item || ""));
-    const limit = limitMap.get(key) || { months: 6, max: 1 };
-    const start = new Date(ref);
-    start.setMonth(start.getMonth() - limit.months);
-    const effectiveStart = minStart && minStart > start ? minStart : start;
-    const count = row.dates.filter((d) => d >= effectiveStart && d <= refEnd).length;
-    return {
-      name: row.name,
-      operation: row.operation,
-      maintenance_item: row.item,
-      total_count: count,
-      last_date: row.dates[0],
-      months_limit: limit.months,
-      max_count: limit.max,
-      status: count > limit.max ? "fora_do_limite" : "dentro_do_limite"
-    };
-  });
-
-  limitRows.sort((a, b) => {
-    if (a.status !== b.status) return a.status === "fora_do_limite" ? -1 : 1;
-    const op = String(a.operation).localeCompare(String(b.operation));
-    if (op !== 0) return op;
-    const nameCmp = String(a.name).localeCompare(String(b.name));
-    if (nameCmp !== 0) return nameCmp;
-    return String(a.maintenance_item).localeCompare(String(b.maintenance_item));
-  });
+  const limitRows = (limitRowsResult.rows || []).map((row: any) => ({
+    ...row,
+    status: Number(row.total_count) > Number(row.max_count) ? "fora_do_limite" : "dentro_do_limite"
+  }));
 
   return res.json({
     reference_date: refDate,
