@@ -38,6 +38,10 @@ const baseImportSchema = z.object({
   sheetName: z.string().optional()
 });
 
+const historyImportSchema = z.object({
+  sheetName: z.string().optional()
+});
+
 const normalizeHeader = (value: string) =>
   value
     .normalize("NFD")
@@ -87,6 +91,51 @@ function parseTimeUsage(buffer: Buffer, sheetName?: string) {
       months: Number(textLike(pickField(row, ["Tempo Estimado Em Meses", "Tempo estimado em meses", "Meses"])))
     }))
     .filter((row) => row.item && Number.isFinite(row.months) && row.months > 0);
+}
+
+function parseUnifiedHistory(buffer: Buffer, sheetName?: string) {
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
+  const sheet = workbook.Sheets[sheetName || workbook.SheetNames[0]];
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  return rows
+    .map((row) => {
+      const submittedAt =
+        new Date(textLike(pickField(row, ["Data/Hora", "Data Hora", "Data", "Carimbo de data/hora"]))) || new Date();
+      const operation = textLike(pickField(row, ["Cod Vendedor", "Codigo", "Cod", "Operacao", "Operação", "Nome"]));
+      const name = textLike(pickField(row, ["Nome", "Nome.1"])) || operation;
+      const maintenanceItem = textLike(pickField(row, ["Trocado", "Tipo", "Troca", "Tipo de Manutenção", "Manutencao", "Manutenção", "O que foi trocado"]));
+      const model = textLike(pickField(row, ["Modelo", "Modelos"]));
+      const model2 = textLike(pickField(row, ["Modelo 2", "Modelos 2", "Unnamed: 10", "Unnamed: 9"]));
+      if (!operation || !maintenanceItem) return null;
+      const key = maintenanceItem.toLowerCase();
+      let phoneModel = "";
+      let tabletModel = "";
+      if (key.includes("tablet")) {
+        tabletModel = model || model2;
+      } else if (key.includes("celular")) {
+        phoneModel = model || model2;
+      } else {
+        phoneModel = model;
+        tabletModel = model2;
+      }
+      return {
+        submittedAt: submittedAt instanceof Date && !Number.isNaN(submittedAt.getTime()) ? submittedAt : new Date(),
+        name,
+        operation,
+        maintenanceItem,
+        phoneModel: phoneModel || null,
+        tabletModel: tabletModel || null
+      };
+    })
+    .filter(Boolean) as Array<{
+      submittedAt: Date;
+      name: string;
+      operation: string;
+      maintenanceItem: string;
+      phoneModel: string | null;
+      tabletModel: string | null;
+    }>;
 }
 
 function resolveLimitKey(value: string): string {
@@ -189,6 +238,57 @@ tiRouter.post("/catalog/import", authRequired, upload.single("file"), async (req
       limitsUpdated
     }
   });
+});
+
+tiRouter.post("/history/import", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
+  if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
+  if (!req.file) return res.status(400).json({ message: "Arquivo obrigatorio." });
+
+  const parsed = historyImportSchema.safeParse(req.body);
+  const sheetName = parsed.success ? parsed.data.sheetName : undefined;
+  const rows = parseUnifiedHistory(req.file.buffer, sheetName);
+  if (!rows.length) return res.status(400).json({ message: "Nao encontramos linhas validas para importar." });
+
+  const client = await pool.connect();
+  let inserted = 0;
+  try {
+    await client.query("BEGIN");
+    for (const row of rows) {
+      const result = await client.query(
+        `
+          INSERT INTO ti_device_records (
+            submitted_at,
+            maintenance_item,
+            name,
+            operation,
+            phone_model,
+            tablet_model
+          )
+          SELECT $1, $2, $3, $4, $5, $6
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM ti_device_records
+            WHERE submitted_at = $1
+              AND maintenance_item = $2
+              AND name = $3
+              AND operation = $4
+              AND COALESCE(phone_model, '') = COALESCE($5, '')
+              AND COALESCE(tablet_model, '') = COALESCE($6, '')
+          )
+        `,
+        [row.submittedAt, row.maintenanceItem, row.name, row.operation, row.phoneModel, row.tabletModel]
+      );
+      if ((result.rowCount ?? 0) > 0) inserted += 1;
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return res.status(201).json({ summary: { processedRows: rows.length, insertedRows: inserted } });
 });
 
 tiRouter.get("/catalog/options", authRequired, async (req: AuthenticatedRequest, res) => {

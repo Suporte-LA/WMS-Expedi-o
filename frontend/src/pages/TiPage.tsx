@@ -6,7 +6,9 @@ type TiSection = "registro" | "controle" | "base";
 export function TiPage() {
   const [activeSection, setActiveSection] = useState<TiSection>("registro");
   const [baseFile, setBaseFile] = useState<File | null>(null);
+  const [historyFile, setHistoryFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importingHistory, setImportingHistory] = useState(false);
   const [catalog, setCatalog] = useState<Array<any>>([]);
   const [maintenanceOptions, setMaintenanceOptions] = useState<Array<string>>([]);
   const [deviceType, setDeviceType] = useState<"phone" | "tablet" | "">("");
@@ -108,6 +110,27 @@ export function TiPage() {
       setError(err?.response?.data?.message || "Erro ao importar base.");
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function importHistory() {
+    setError("");
+    setMessage("");
+    if (!historyFile) {
+      setError("Selecione o arquivo de historico.");
+      return;
+    }
+    setImportingHistory(true);
+    try {
+      const form = new FormData();
+      form.append("file", historyFile);
+      const { data } = await api.post("/ti/history/import", form, { headers: { "Content-Type": "multipart/form-data" } });
+      setMessage(`Historico importado. Processadas: ${data.summary.processedRows}, Inseridas: ${data.summary.insertedRows}`);
+      setHistoryFile(null);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao importar historico.");
+    } finally {
+      setImportingHistory(false);
     }
   }
 
@@ -261,6 +284,22 @@ export function TiPage() {
             <span className="text-sm text-slate-500">{baseFile?.name || "Nenhum arquivo selecionado"}</span>
             <button type="button" onClick={importBase} className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold" disabled={importing}>
               {importing ? "Importando..." : "Importar Base"}
+            </button>
+          </div>
+          <div className="pt-2 border-t flex flex-wrap items-center gap-2">
+            <input
+              id="ti-history-upload"
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => setHistoryFile(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="ti-history-upload" className="rounded-xl border px-3 py-2 cursor-pointer">
+              Escolher historico
+            </label>
+            <span className="text-sm text-slate-500">{historyFile?.name || "Nenhum historico selecionado"}</span>
+            <button type="button" onClick={importHistory} className="rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold" disabled={importingHistory}>
+              {importingHistory ? "Importando..." : "Importar Historico"}
             </button>
           </div>
         </div>
