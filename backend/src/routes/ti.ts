@@ -1,7 +1,11 @@
 import { Router } from "express";
+import multer from "multer";
+import XLSX from "xlsx";
 import { z } from "zod";
 import { authRequired, AuthenticatedRequest } from "../middleware/auth.js";
 import { pool } from "../db.js";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const recordSchema = z.object({
   maintenanceItem: z.string().min(1),
@@ -30,6 +34,61 @@ const controlSchema = z.object({
   item: z.string().optional()
 });
 
+const baseImportSchema = z.object({
+  sheetName: z.string().optional()
+});
+
+const normalizeHeader = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+const textLike = (value: unknown): string => (value == null ? "" : String(value).trim());
+
+function pickField(row: Record<string, unknown>, aliases: string[]) {
+  const map = new Map<string, unknown>();
+  Object.keys(row).forEach((key) => map.set(normalizeHeader(key), row[key]));
+  for (const alias of aliases) {
+    const found = map.get(normalizeHeader(alias));
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+function parseTiBase(buffer: Buffer, sheetName?: string) {
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
+  const sheet = workbook.Sheets[sheetName || workbook.SheetNames[0]];
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  return rows
+    .map((row) => ({
+      maintenanceItem: textLike(pickField(row, ["Manutencao", "Manutenção"])),
+      name: textLike(pickField(row, ["Nome"])),
+      operation: textLike(pickField(row, ["Operacao", "Operação"])),
+      phoneModel: textLike(pickField(row, ["Celulares", "Celular", "Aparelho"])),
+      tabletModel: textLike(pickField(row, ["Tablets", "Tablet"]))
+    }))
+    .filter((row) => row.name && row.operation);
+}
+
+function parseTimeUsage(buffer: Buffer, sheetName?: string) {
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
+  const sheet =
+    (sheetName && workbook.Sheets[sheetName]) ||
+    workbook.Sheets["Tempo de uso"] ||
+    workbook.Sheets["Tempo de Uso"];
+  if (!sheet) return [];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  return rows
+    .map((row) => ({
+      item: textLike(pickField(row, ["Materiais", "Material", "Item"])),
+      months: Number(textLike(pickField(row, ["Tempo Estimado Em Meses", "Tempo estimado em meses", "Meses"])))
+    }))
+    .filter((row) => row.item && Number.isFinite(row.months) && row.months > 0);
+}
+
 function requireTiAccess(req: AuthenticatedRequest): boolean {
   if (!req.user) return false;
   if (req.user.role === "admin") return true;
@@ -37,6 +96,115 @@ function requireTiAccess(req: AuthenticatedRequest): boolean {
 }
 
 export const tiRouter = Router();
+
+tiRouter.post("/catalog/import", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
+  if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
+  if (!req.file) return res.status(400).json({ message: "Arquivo obrigatorio." });
+
+  const parsed = baseImportSchema.safeParse(req.body);
+  const sheetName = parsed.success ? parsed.data.sheetName : undefined;
+  const baseRows = parseTiBase(req.file.buffer, sheetName);
+  const timeRows = parseTimeUsage(req.file.buffer);
+
+  if (!baseRows.length && !timeRows.length) {
+    return res.status(400).json({ message: "Nao encontramos linhas validas para importar." });
+  }
+
+  const client = await pool.connect();
+  let inserted = 0;
+  let updated = 0;
+  let limitsUpdated = 0;
+  try {
+    await client.query("BEGIN");
+    for (const row of baseRows) {
+      const existing = await client.query(
+        `
+          SELECT id
+          FROM ti_device_catalog
+          WHERE name = $1 AND operation = $2
+          LIMIT 1
+        `,
+        [row.name, row.operation]
+      );
+
+      if (existing.rowCount) {
+        await client.query(
+          `
+            UPDATE ti_device_catalog
+            SET phone_model = $3,
+                tablet_model = $4,
+                updated_at = now()
+            WHERE id = $1
+          `,
+          [existing.rows[0].id, row.phoneModel || null, row.tabletModel || null]
+        );
+        updated += 1;
+      } else {
+        await client.query(
+          `
+            INSERT INTO ti_device_catalog (name, operation, phone_model, tablet_model)
+            VALUES ($1, $2, $3, $4)
+          `,
+          [row.name, row.operation, row.phoneModel || null, row.tabletModel || null]
+        );
+        inserted += 1;
+      }
+    }
+
+    for (const row of timeRows) {
+      await client.query(
+        `
+          INSERT INTO ti_device_limits (item, months_limit, max_count)
+          VALUES ($1, $2, COALESCE((SELECT max_count FROM ti_device_limits WHERE item = $1), 1))
+          ON CONFLICT (item) DO UPDATE SET months_limit = EXCLUDED.months_limit
+        `,
+        [row.item.toLowerCase(), row.months]
+      );
+      limitsUpdated += 1;
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return res.status(201).json({
+    summary: {
+      processedRows: baseRows.length,
+      insertedRows: inserted,
+      updatedRows: updated,
+      limitsUpdated
+    }
+  });
+});
+
+tiRouter.get("/catalog/options", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
+
+  const [catalog, limits, items] = await Promise.all([
+    pool.query(
+      `
+        SELECT id, name, operation, phone_model, tablet_model
+        FROM ti_device_catalog
+        ORDER BY name
+      `
+    ),
+    pool.query(`SELECT item, months_limit, max_count FROM ti_device_limits ORDER BY item`),
+    pool.query(`SELECT DISTINCT maintenance_item FROM ti_device_records ORDER BY maintenance_item`)
+  ]);
+
+  const maintenanceItems = new Set<string>();
+  for (const row of limits.rows) maintenanceItems.add(String(row.item));
+  for (const row of items.rows) maintenanceItems.add(String(row.maintenance_item));
+
+  return res.json({
+    catalog: catalog.rows,
+    maintenanceItems: Array.from(maintenanceItems)
+  });
+});
 
 tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) => {
   if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
@@ -158,7 +326,6 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const refDate = to || new Date().toISOString().slice(0, 10);
-  values.push(refDate);
 
   const limits = await pool.query(
     `
@@ -167,9 +334,31 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     `
   );
   const limitMap = new Map<string, { months: number; max: number }>();
+  let maxMonths = 6;
   for (const row of limits.rows) {
-    limitMap.set(String(row.item).toLowerCase(), { months: Number(row.months_limit), max: Number(row.max_count) });
+    const months = Number(row.months_limit);
+    const max = Number(row.max_count);
+    limitMap.set(String(row.item).toLowerCase(), { months, max });
+    if (months > maxMonths) maxMonths = months;
   }
+
+  const baseFilters: string[] = [];
+  const baseValues: unknown[] = [];
+  if (name?.trim()) {
+    baseValues.push(`%${name.trim()}%`);
+    baseFilters.push(`r.name ILIKE $${baseValues.length}`);
+  }
+  if (operation?.trim()) {
+    baseValues.push(`%${operation.trim()}%`);
+    baseFilters.push(`r.operation ILIKE $${baseValues.length}`);
+  }
+  if (item?.trim()) {
+    baseValues.push(`%${item.trim()}%`);
+    baseFilters.push(`r.maintenance_item ILIKE $${baseValues.length}`);
+  }
+  baseValues.push(refDate);
+  baseValues.push(maxMonths);
+  const baseWhere = baseFilters.length ? `WHERE ${baseFilters.join(" AND ")} AND` : "WHERE";
 
   const windowed = await pool.query(
     `
@@ -177,14 +366,13 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
         r.name,
         r.operation,
         r.maintenance_item,
-        COUNT(*)::int AS total_count,
-        MAX(r.submitted_at) AS last_date
+        r.submitted_at
       FROM ti_device_records r
-      WHERE r.submitted_at::date <= $${values.length}::date
-      GROUP BY r.name, r.operation, r.maintenance_item
-      ORDER BY last_date DESC
+      ${baseWhere} r.submitted_at >= ($${baseValues.length - 1}::date - ($${baseValues.length}::int || ' months')::interval)
+        AND r.submitted_at::date <= $${baseValues.length - 1}::date
+      ORDER BY r.submitted_at DESC
     `,
-    values
+    baseValues
   );
 
   const monthSummary = await pool.query(
@@ -200,23 +388,33 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
       GROUP BY month, r.name, r.operation, r.maintenance_item
       ORDER BY month DESC
     `,
-    values.slice(0, values.length - 1)
+    values
   );
 
-  const limitRows = windowed.rows.map((row: any) => {
-    const key = String(row.maintenance_item || "").toLowerCase();
+  const ref = new Date(refDate);
+  const grouped = new Map<string, { name: string; operation: string; item: string; dates: Date[] }>();
+  for (const row of windowed.rows as Array<{ name: string; operation: string; maintenance_item: string; submitted_at: string }>) {
+    const key = `${row.name}||${row.operation}||${row.maintenance_item}`;
+    const bucket = grouped.get(key) || { name: row.name, operation: row.operation, item: row.maintenance_item, dates: [] };
+    bucket.dates.push(new Date(row.submitted_at));
+    grouped.set(key, bucket);
+  }
+
+  const limitRows = Array.from(grouped.values()).map((row) => {
+    const key = String(row.item || "").toLowerCase();
     const limit = limitMap.get(key) || { months: 6, max: 1 };
-    const start = new Date(refDate);
+    const start = new Date(ref);
     start.setMonth(start.getMonth() - limit.months);
+    const count = row.dates.filter((d) => d >= start && d <= ref).length;
     return {
       name: row.name,
       operation: row.operation,
-      maintenance_item: row.maintenance_item,
-      total_count: Number(row.total_count),
-      last_date: row.last_date,
+      maintenance_item: row.item,
+      total_count: count,
+      last_date: row.dates[0],
       months_limit: limit.months,
       max_count: limit.max,
-      status: Number(row.total_count) > limit.max ? "fora_do_limite" : "dentro_do_limite"
+      status: count > limit.max ? "fora_do_limite" : "dentro_do_limite"
     };
   });
 
@@ -226,4 +424,3 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     monthly: monthSummary.rows
   });
 });
-

@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
-type TiSection = "registro" | "controle";
+type TiSection = "registro" | "controle" | "base";
 
 export function TiPage() {
   const [activeSection, setActiveSection] = useState<TiSection>("registro");
+  const [baseFile, setBaseFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [catalog, setCatalog] = useState<Array<any>>([]);
+  const [maintenanceOptions, setMaintenanceOptions] = useState<Array<string>>([]);
   const [maintenanceItem, setMaintenanceItem] = useState("");
   const [name, setName] = useState("");
   const [operation, setOperation] = useState("");
@@ -22,6 +26,12 @@ export function TiPage() {
   const [controlLoading, setControlLoading] = useState(false);
   const [limits, setLimits] = useState<Array<any>>([]);
   const [monthly, setMonthly] = useState<Array<any>>([]);
+
+  async function loadCatalog() {
+    const { data } = await api.get("/ti/catalog/options");
+    setCatalog(data.catalog || []);
+    setMaintenanceOptions(data.maintenanceItems || []);
+  }
 
   async function submitRecord() {
     setError("");
@@ -67,11 +77,48 @@ export function TiPage() {
     }
   }
 
+  async function importBase() {
+    setError("");
+    setMessage("");
+    if (!baseFile) {
+      setError("Selecione a base para importar.");
+      return;
+    }
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", baseFile);
+      const { data } = await api.post("/ti/catalog/import", form, { headers: { "Content-Type": "multipart/form-data" } });
+      setMessage(
+        `Base importada. Processadas: ${data.summary.processedRows}, Inseridas: ${data.summary.insertedRows}, Atualizadas: ${data.summary.updatedRows}, Limites: ${data.summary.limitsUpdated}`
+      );
+      setBaseFile(null);
+      await loadCatalog();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao importar base.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   useEffect(() => {
     if (activeSection === "controle") {
       loadControl();
     }
   }, [activeSection]);
+
+  useEffect(() => {
+    loadCatalog();
+  }, []);
+
+  useEffect(() => {
+    if (!name) return;
+    const match = catalog.find((c) => String(c.name).toLowerCase() === String(name).toLowerCase());
+    if (!match) return;
+    setOperation(match.operation || "");
+    if (match.phone_model) setPhoneModel(match.phone_model);
+    if (match.tablet_model) setTabletModel(match.tablet_model);
+  }, [name, catalog]);
 
   return (
     <section className="space-y-4">
@@ -96,6 +143,13 @@ export function TiPage() {
             >
               Controle de aparelhos de vendas
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection("base")}
+              className={`rounded-lg px-3 py-1 text-sm ${activeSection === "base" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
+            >
+              Base de dados
+            </button>
           </div>
         </div>
       </div>
@@ -104,11 +158,39 @@ export function TiPage() {
         <div className="bg-white rounded-2xl p-4 shadow-sm min-h-[200px]">
           <h3 className="font-semibold">Registro de aparelho de vendas</h3>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
-            <input className="border rounded-xl px-3 py-2" placeholder="Manutencao (ex: Pelicula)" value={maintenanceItem} onChange={(e) => setMaintenanceItem(e.target.value)} />
-            <input className="border rounded-xl px-3 py-2" placeholder="Nome" value={name} onChange={(e) => setName(e.target.value)} />
-            <input className="border rounded-xl px-3 py-2" placeholder="Operacao (ex: vendas 02)" value={operation} onChange={(e) => setOperation(e.target.value)} />
-            <input className="border rounded-xl px-3 py-2" placeholder="Celulares (modelo)" value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)} />
-            <input className="border rounded-xl px-3 py-2" placeholder="Tablets (modelo)" value={tabletModel} onChange={(e) => setTabletModel(e.target.value)} />
+            <select className="border rounded-xl px-3 py-2" value={maintenanceItem} onChange={(e) => setMaintenanceItem(e.target.value)}>
+              <option value="">Manutencao</option>
+              {maintenanceOptions.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <select className="border rounded-xl px-3 py-2" value={name} onChange={(e) => setName(e.target.value)}>
+              <option value="">Nome</option>
+              {catalog.map((c) => (
+                <option key={`${c.id}-${c.name}`} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Operacao" value={operation} readOnly />
+            <select className="border rounded-xl px-3 py-2" value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)}>
+              <option value="">Celulares (modelo)</option>
+              {catalog
+                .filter((c) => String(c.name).toLowerCase() === String(name).toLowerCase())
+                .map((c) => c.phone_model)
+                .filter(Boolean)
+                .map((m: string) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+            </select>
+            <select className="border rounded-xl px-3 py-2" value={tabletModel} onChange={(e) => setTabletModel(e.target.value)}>
+              <option value="">Tablets (modelo)</option>
+              {catalog
+                .filter((c) => String(c.name).toLowerCase() === String(name).toLowerCase())
+                .map((c) => c.tablet_model)
+                .filter(Boolean)
+                .map((m: string) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+            </select>
           </div>
           <div className="mt-3 flex items-center gap-3">
             <button
@@ -121,6 +203,29 @@ export function TiPage() {
             </button>
             {message && <span className="text-sm text-emerald-700">{message}</span>}
             {error && <span className="text-sm text-red-700">{error}</span>}
+          </div>
+        </div>
+      )}
+
+      {activeSection === "base" && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm min-h-[200px] space-y-3">
+          <h3 className="font-semibold">Base de dados</h3>
+          <p className="text-sm text-slate-600">Importe a base para preencher nomes e modelos nos formulários.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="ti-base-upload"
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => setBaseFile(e.target.files?.[0] || null)}
+            />
+            <label htmlFor="ti-base-upload" className="rounded-xl border px-3 py-2 cursor-pointer">
+              Escolher base
+            </label>
+            <span className="text-sm text-slate-500">{baseFile?.name || "Nenhum arquivo selecionado"}</span>
+            <button type="button" onClick={importBase} className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold" disabled={importing}>
+              {importing ? "Importando..." : "Importar Base"}
+            </button>
           </div>
         </div>
       )}
