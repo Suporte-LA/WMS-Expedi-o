@@ -9,6 +9,7 @@ export function TiPage() {
   const [importing, setImporting] = useState(false);
   const [catalog, setCatalog] = useState<Array<any>>([]);
   const [maintenanceOptions, setMaintenanceOptions] = useState<Array<string>>([]);
+  const [deviceType, setDeviceType] = useState<"phone" | "tablet" | "">("");
   const [maintenanceItem, setMaintenanceItem] = useState("");
   const [name, setName] = useState("");
   const [operation, setOperation] = useState("");
@@ -40,14 +41,22 @@ export function TiPage() {
       setError("Preencha Manutencao, Nome e Operacao.");
       return;
     }
+    if ((maintenanceItem || "").toLowerCase().includes("pelicula") || (maintenanceItem || "").toLowerCase().includes("capinha")) {
+      if (!deviceType) {
+        setError("Selecione Celular ou Tablet.");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
+      const sendPhone = deviceType === "phone" ? phoneModel : maintenanceItem.toLowerCase().includes("celular") ? phoneModel : "";
+      const sendTablet = deviceType === "tablet" ? tabletModel : maintenanceItem.toLowerCase().includes("tablet") ? tabletModel : "";
       await api.post("/ti/records", {
         maintenanceItem,
         name,
         operation,
-        phoneModel: phoneModel || undefined,
-        tabletModel: tabletModel || undefined
+        phoneModel: sendPhone || undefined,
+        tabletModel: sendTablet || undefined
       });
       setMessage("Registro salvo.");
       setMaintenanceItem("");
@@ -55,6 +64,7 @@ export function TiPage() {
       setOperation("");
       setPhoneModel("");
       setTabletModel("");
+      setDeviceType("");
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao salvar registro.");
     } finally {
@@ -112,13 +122,17 @@ export function TiPage() {
   }, []);
 
   useEffect(() => {
-    if (!name) return;
-    const match = catalog.find((c) => String(c.name).toLowerCase() === String(name).toLowerCase());
+    if (!name || !operation) return;
+    const match = catalog.find(
+      (c) =>
+        String(c.name).toLowerCase() === String(name).toLowerCase() &&
+        String(c.operation).toLowerCase() === String(operation).toLowerCase()
+    );
     if (!match) return;
     setOperation(match.operation || "");
     if (match.phone_model) setPhoneModel(match.phone_model);
     if (match.tablet_model) setTabletModel(match.tablet_model);
-  }, [name, catalog]);
+  }, [name, operation, catalog]);
 
   return (
     <section className="space-y-4">
@@ -164,33 +178,55 @@ export function TiPage() {
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
-            <select className="border rounded-xl px-3 py-2" value={name} onChange={(e) => setName(e.target.value)}>
-              <option value="">Nome</option>
-              {catalog.map((c) => (
-                <option key={`${c.id}-${c.name}`} value={c.name}>{c.name}</option>
+            <select className="border rounded-xl px-3 py-2" value={operation} onChange={(e) => setOperation(e.target.value)}>
+              <option value="">Operacao</option>
+              {Array.from(new Set(catalog.map((c) => c.operation).filter(Boolean))).map((op) => (
+                <option key={op} value={op}>{op}</option>
               ))}
             </select>
-            <input className="border rounded-xl px-3 py-2 bg-slate-50" placeholder="Operacao" value={operation} readOnly />
-            <select className="border rounded-xl px-3 py-2" value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)}>
-              <option value="">Celulares (modelo)</option>
+            <select className="border rounded-xl px-3 py-2" value={name} onChange={(e) => setName(e.target.value)}>
+              <option value="">Nome</option>
               {catalog
-                .filter((c) => String(c.name).toLowerCase() === String(name).toLowerCase())
-                .map((c) => c.phone_model)
+                .filter((c) => String(c.operation).toLowerCase() === String(operation).toLowerCase())
+                .map((c) => c.name)
                 .filter(Boolean)
-                .map((m: string) => (
-                  <option key={m} value={m}>{m}</option>
+                .map((n: string) => (
+                  <option key={n} value={n}>{n}</option>
                 ))}
             </select>
-            <select className="border rounded-xl px-3 py-2" value={tabletModel} onChange={(e) => setTabletModel(e.target.value)}>
-              <option value="">Tablets (modelo)</option>
-              {catalog
-                .filter((c) => String(c.name).toLowerCase() === String(name).toLowerCase())
-                .map((c) => c.tablet_model)
-                .filter(Boolean)
-                .map((m: string) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-            </select>
+            {["pelicula", "capinha"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) && (
+              <select className="border rounded-xl px-3 py-2" value={deviceType} onChange={(e) => setDeviceType(e.target.value as "phone" | "tablet" | "")}>
+                <option value="">Celular ou Tablet</option>
+                <option value="phone">Celular</option>
+                <option value="tablet">Tablet</option>
+              </select>
+            )}
+            {((maintenanceItem || "").toLowerCase().includes("celular") || deviceType === "phone") && (
+              <select className="border rounded-xl px-3 py-2" value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)}>
+                <option value="">Celulares (modelo)</option>
+                {catalog
+                  .filter((c) => String(c.operation).toLowerCase() === String(operation).toLowerCase())
+                  .filter((c) => String(c.name).toLowerCase() === String(name).toLowerCase())
+                  .map((c) => c.phone_model)
+                  .filter(Boolean)
+                  .map((m: string) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+              </select>
+            )}
+            {((maintenanceItem || "").toLowerCase().includes("tablet") || deviceType === "tablet") && (
+              <select className="border rounded-xl px-3 py-2" value={tabletModel} onChange={(e) => setTabletModel(e.target.value)}>
+                <option value="">Tablets (modelo)</option>
+                {catalog
+                  .filter((c) => String(c.operation).toLowerCase() === String(operation).toLowerCase())
+                  .filter((c) => String(c.name).toLowerCase() === String(name).toLowerCase())
+                  .map((c) => c.tablet_model)
+                  .filter(Boolean)
+                  .map((m: string) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+              </select>
+            )}
           </div>
           <div className="mt-3 flex items-center gap-3">
             <button
