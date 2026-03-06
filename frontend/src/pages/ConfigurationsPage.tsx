@@ -5,7 +5,6 @@ import type { AccessSettings, Role, ScreenKey, User, Workspace, WorkspaceAccessS
 const SCREEN_LABELS: Record<ScreenKey, string> = {
   dashboard: "Dashboard",
   descents: "Descer Pedidos",
-  ti: "TI",
   "error-check": "Conferencia Erros",
   "error-reports": "Relatorio Erros",
   imports: "Imports",
@@ -23,7 +22,8 @@ const ROLE_LABELS: Record<Role, string> = {
 const WORKSPACE_LABELS: Record<Workspace, string> = {
   expedicao: "Expedicao",
   estoque: "Estoque",
-  "estoque-ti": "Estoque TI"
+  "estoque-ti": "Estoque TI",
+  ti: "TI"
 };
 
 export function ConfigurationsPage({ currentUser }: { currentUser: User }) {
@@ -80,7 +80,7 @@ export function ConfigurationsPage({ currentUser }: { currentUser: User }) {
         permissions: {
           ...prev.permissions,
           [userId]: {
-            ...(prev.permissions[userId] || { expedicao: false, estoque: false, "estoque-ti": false }),
+            ...(prev.permissions[userId] || { expedicao: false, estoque: false, "estoque-ti": false, ti: false }),
             [workspace]: enabled
           }
         }

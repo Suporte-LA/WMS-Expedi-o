@@ -6,7 +6,7 @@ import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../midd
 import { writeAuditLog } from "../services/audit.js";
 import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
-const workspaceEnum = z.enum(["expedicao", "estoque", "estoque-ti"]);
+const workspaceEnum = z.enum(["expedicao", "estoque", "estoque-ti", "ti"]);
 
 const createUserSchema = z.object({
   name: z.string().min(2),
@@ -172,4 +172,3 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     workspace: hasWorkspace ? result.rows[0].workspace : "expedicao"
   });
 });
-

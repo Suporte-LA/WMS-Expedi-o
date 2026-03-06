@@ -1,5 +1,5 @@
 export type UserRole = "admin" | "supervisor" | "operator" | "conferente";
-export type Workspace = "expedicao" | "estoque" | "estoque-ti";
+export type Workspace = "expedicao" | "estoque" | "estoque-ti" | "ti";
 
 export type SafeUser = {
   id: string;

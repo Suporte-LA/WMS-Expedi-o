@@ -133,6 +133,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
           <option value="expedicao">Expedicao</option>
           <option value="estoque">Estoque</option>
           <option value="estoque-ti">Estoque TI</option>
+          <option value="ti">TI</option>
         </select>
         <input
           className="border rounded-xl px-3 py-2"
@@ -213,6 +214,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                     <option value="expedicao">Expedicao</option>
                     <option value="estoque">Estoque</option>
                     <option value="estoque-ti">Estoque TI</option>
+                    <option value="ti">TI</option>
                   </select>
                 </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>

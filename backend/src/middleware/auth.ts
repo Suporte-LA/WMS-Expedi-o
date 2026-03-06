@@ -18,7 +18,7 @@ type TokenPayload = {
   workspace?: Workspace;
 };
 
-type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp" | "ti";
+type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp";
 
 const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
   admin: {
@@ -28,8 +28,7 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-reports": true,
     imports: true,
     users: true,
-    "montagem-sp": true,
-    ti: true
+    "montagem-sp": true
   },
   supervisor: {
     dashboard: true,
@@ -38,8 +37,7 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-reports": true,
     imports: false,
     users: true,
-    "montagem-sp": true,
-    ti: true
+    "montagem-sp": true
   },
   operator: {
     dashboard: false,
@@ -48,8 +46,7 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-reports": false,
     imports: false,
     users: false,
-    "montagem-sp": true,
-    ti: false
+    "montagem-sp": true
   },
   conferente: {
     dashboard: false,
@@ -58,8 +55,7 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     "error-reports": false,
     imports: false,
     users: false,
-    "montagem-sp": false,
-    ti: false
+    "montagem-sp": false
   }
 };
 

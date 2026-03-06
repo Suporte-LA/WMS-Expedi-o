@@ -6,8 +6,8 @@ import { writeAuditLog } from "../services/audit.js";
 import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
 const ROLES = ["admin", "supervisor", "operator", "conferente"] as const;
-const SCREENS = ["dashboard", "descents", "error-check", "error-reports", "imports", "users", "montagem-sp", "ti"] as const;
-const WORKSPACES = ["expedicao", "estoque", "estoque-ti"] as const;
+const SCREENS = ["dashboard", "descents", "error-check", "error-reports", "imports", "users", "montagem-sp"] as const;
+const WORKSPACES = ["expedicao", "estoque", "estoque-ti", "ti"] as const;
 
 type Role = (typeof ROLES)[number];
 type Screen = (typeof SCREENS)[number];
@@ -43,7 +43,6 @@ const DEFAULT_PERMISSIONS: Array<{ role: Role; screen_key: Screen; is_enabled: b
   { role: "admin", screen_key: "imports", is_enabled: true },
   { role: "admin", screen_key: "users", is_enabled: true },
   { role: "admin", screen_key: "montagem-sp", is_enabled: true },
-  { role: "admin", screen_key: "ti", is_enabled: true },
   { role: "supervisor", screen_key: "dashboard", is_enabled: true },
   { role: "supervisor", screen_key: "descents", is_enabled: true },
   { role: "supervisor", screen_key: "error-check", is_enabled: true },
@@ -51,7 +50,6 @@ const DEFAULT_PERMISSIONS: Array<{ role: Role; screen_key: Screen; is_enabled: b
   { role: "supervisor", screen_key: "imports", is_enabled: false },
   { role: "supervisor", screen_key: "users", is_enabled: true },
   { role: "supervisor", screen_key: "montagem-sp", is_enabled: true },
-  { role: "supervisor", screen_key: "ti", is_enabled: true },
   { role: "operator", screen_key: "dashboard", is_enabled: false },
   { role: "operator", screen_key: "descents", is_enabled: true },
   { role: "operator", screen_key: "error-check", is_enabled: false },
@@ -59,15 +57,13 @@ const DEFAULT_PERMISSIONS: Array<{ role: Role; screen_key: Screen; is_enabled: b
   { role: "operator", screen_key: "imports", is_enabled: false },
   { role: "operator", screen_key: "users", is_enabled: false },
   { role: "operator", screen_key: "montagem-sp", is_enabled: true },
-  { role: "operator", screen_key: "ti", is_enabled: false },
   { role: "conferente", screen_key: "dashboard", is_enabled: false },
   { role: "conferente", screen_key: "descents", is_enabled: false },
   { role: "conferente", screen_key: "error-check", is_enabled: true },
   { role: "conferente", screen_key: "error-reports", is_enabled: false },
   { role: "conferente", screen_key: "imports", is_enabled: false },
   { role: "conferente", screen_key: "users", is_enabled: false },
-  { role: "conferente", screen_key: "montagem-sp", is_enabled: false },
-  { role: "conferente", screen_key: "ti", is_enabled: false }
+  { role: "conferente", screen_key: "montagem-sp", is_enabled: false }
 ];
 
 async function ensureSettingsTable() {
@@ -97,11 +93,32 @@ async function ensureWorkspacePermissionsTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_workspace_permissions (
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      workspace text NOT NULL CHECK (workspace IN ('expedicao', 'estoque', 'estoque-ti')),
+      workspace text NOT NULL,
       is_enabled boolean NOT NULL DEFAULT false,
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, workspace)
     )
+  `);
+
+  await pool.query(`
+    DO $$
+    DECLARE r record;
+    BEGIN
+      FOR r IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'user_workspace_permissions'::regclass
+          AND contype = 'c'
+      LOOP
+        EXECUTE format('ALTER TABLE user_workspace_permissions DROP CONSTRAINT %I', r.conname);
+      END LOOP;
+    END $$;
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_workspace_permissions
+    ADD CONSTRAINT user_workspace_permissions_workspace_check
+    CHECK (workspace IN ('expedicao', 'estoque', 'estoque-ti', 'ti'))
   `);
 
   const hasWorkspace = await supportsWorkspaceColumn();
@@ -146,8 +163,7 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-reports": false,
       imports: false,
       users: false,
-      "montagem-sp": false,
-      ti: false
+      "montagem-sp": false
     },
     supervisor: {
       dashboard: false,
@@ -156,8 +172,7 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-reports": false,
       imports: false,
       users: false,
-      "montagem-sp": false,
-      ti: false
+      "montagem-sp": false
     },
     operator: {
       dashboard: false,
@@ -166,8 +181,7 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-reports": false,
       imports: false,
       users: false,
-      "montagem-sp": false,
-      ti: false
+      "montagem-sp": false
     },
     conferente: {
       dashboard: false,
@@ -176,8 +190,7 @@ settingsRouter.get("/access", authRequired, async (_req, res) => {
       "error-reports": false,
       imports: false,
       users: false,
-      "montagem-sp": false,
-      ti: false
+      "montagem-sp": false
     }
   };
 
@@ -248,7 +261,7 @@ settingsRouter.get("/workspaces", authRequired, requireRole(["admin"]), async (_
 
   const permissions: Record<string, Record<Workspace, boolean>> = {};
   for (const user of users.rows) {
-    permissions[user.id] = { expedicao: false, estoque: false, "estoque-ti": false };
+    permissions[user.id] = { expedicao: false, estoque: false, "estoque-ti": false, ti: false };
   }
   for (const row of permissionsRows.rows) {
     if (!permissions[row.user_id]) continue;

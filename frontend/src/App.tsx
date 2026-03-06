@@ -40,14 +40,14 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/error-check", label: "Conferencia Erros", screen: "error-check" },
   { to: "/error-reports", label: "Relatorio Erros", screen: "error-reports" },
   { to: "/montagem-sp", label: "Montagem SP", screen: "montagem-sp" },
-  { to: "/ti", label: "TI", screen: "ti" },
   { to: "/imports", label: "Imports", screen: "imports" },
   { to: "/users", label: "Usuarios", screen: "users" }
 ];
 
 const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
 const STOCK_TI_NAV_ITEMS: NavItem[] = [{ to: "/estoque-ti", label: "Estoque TI" }];
-const ALL_WORKSPACES: Workspace[] = ["expedicao", "estoque", "estoque-ti"];
+const TI_NAV_ITEMS: NavItem[] = [{ to: "/ti", label: "TI" }];
+const ALL_WORKSPACES: Workspace[] = ["expedicao", "estoque", "estoque-ti", "ti"];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -56,7 +56,6 @@ const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/error-check": "error-check",
   "/error-reports": "error-reports",
   "/montagem-sp": "montagem-sp",
-  "/ti": "ti",
   "/imports": "imports",
   "/users": "users"
 };
@@ -68,7 +67,6 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": true,
     "montagem-sp": true,
-    ti: true,
     imports: true,
     users: true
   },
@@ -78,7 +76,6 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": true,
     "montagem-sp": true,
-    ti: true,
     imports: false,
     users: true
   },
@@ -88,7 +85,6 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": false,
     "error-reports": false,
     "montagem-sp": true,
-    ti: false,
     imports: false,
     users: false
   },
@@ -98,7 +94,6 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": false,
     "montagem-sp": false,
-    ti: false,
     imports: false,
     users: false
   }
@@ -111,6 +106,9 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
   if (workspace === "estoque-ti") {
     return STOCK_TI_NAV_ITEMS;
   }
+  if (workspace === "ti") {
+    return TI_NAV_ITEMS;
+  }
 
   const base = EXPEDICAO_NAV_ITEMS.filter((item) => (item.screen ? permissions[role][item.screen] : false));
   if (role === "admin") {
@@ -122,6 +120,7 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
 function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"], workspace: Workspace): AppRoute {
   if (workspace === "estoque") return "/estoque";
   if (workspace === "estoque-ti") return "/estoque-ti";
+  if (workspace === "ti") return "/ti";
   const nav = buildNav(role, permissions, workspace);
   if (nav.length) return nav[0].to;
   if (role === "admin") return "/settings";
@@ -186,6 +185,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   useEffect(() => {
     const inStockPath = location.pathname === "/estoque";
     const inStockTiPath = location.pathname === "/estoque-ti";
+    const inTiPath = location.pathname === "/ti";
 
     if (activeWorkspace === "estoque" && !inStockPath) {
       navigate("/estoque", { replace: true });
@@ -195,7 +195,11 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
       navigate("/estoque-ti", { replace: true });
       return;
     }
-    if (activeWorkspace === "expedicao" && (inStockPath || inStockTiPath)) {
+    if (activeWorkspace === "ti" && !inTiPath) {
+      navigate("/ti", { replace: true });
+      return;
+    }
+    if (activeWorkspace === "expedicao" && (inStockPath || inStockTiPath || inTiPath)) {
       navigate(defaultRouteFor(user.role, permissions, "expedicao"), { replace: true });
     }
   }, [activeWorkspace, location.pathname, navigate, user.role, permissions]);
@@ -232,7 +236,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace} value={workspace}>
-                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : "Estoque TI"}
+                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : workspace === "estoque-ti" ? "Estoque TI" : "TI"}
                   </option>
                 ))}
               </select>
@@ -245,7 +249,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace} value={workspace}>
-                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : "Estoque TI"}
+                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : workspace === "estoque-ti" ? "Estoque TI" : "TI"}
                   </option>
                 ))}
               </select>
@@ -286,7 +290,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace} value={workspace}>
-                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : "Estoque TI"}
+                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : workspace === "estoque-ti" ? "Estoque TI" : "TI"}
                   </option>
                 ))}
               </select>
@@ -369,7 +373,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
             <Route
               path="/ti"
               element={
-                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/ti", permissions)
+                activeWorkspace === "ti"
                   ? <TiPage />
                   : <Navigate to={defaultRoute} replace />
               }
