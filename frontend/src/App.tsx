@@ -15,8 +15,21 @@ import { ConfigurationsPage } from "./pages/ConfigurationsPage";
 import { MontagemSpPage } from "./pages/MontagemSpPage";
 import { StockPage } from "./pages/StockPage";
 import { StockTiPage } from "./pages/StockTiPage";
+import { TiPage } from "./pages/TiPage";
 
-type AppRoute = "/" | "/descents" | "/descent-reports" | "/error-check" | "/error-reports" | "/imports" | "/users" | "/montagem-sp" | "/settings" | "/estoque" | "/estoque-ti";
+type AppRoute =
+  | "/"
+  | "/descents"
+  | "/descent-reports"
+  | "/error-check"
+  | "/error-reports"
+  | "/imports"
+  | "/users"
+  | "/montagem-sp"
+  | "/ti"
+  | "/settings"
+  | "/estoque"
+  | "/estoque-ti";
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
@@ -27,6 +40,7 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
   { to: "/error-check", label: "Conferencia Erros", screen: "error-check" },
   { to: "/error-reports", label: "Relatorio Erros", screen: "error-reports" },
   { to: "/montagem-sp", label: "Montagem SP", screen: "montagem-sp" },
+  { to: "/ti", label: "TI", screen: "ti" },
   { to: "/imports", label: "Imports", screen: "imports" },
   { to: "/users", label: "Usuarios", screen: "users" }
 ];
@@ -42,6 +56,7 @@ const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/error-check": "error-check",
   "/error-reports": "error-reports",
   "/montagem-sp": "montagem-sp",
+  "/ti": "ti",
   "/imports": "imports",
   "/users": "users"
 };
@@ -53,6 +68,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": true,
     "montagem-sp": true,
+    ti: true,
     imports: true,
     users: true
   },
@@ -62,6 +78,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": true,
     "montagem-sp": true,
+    ti: true,
     imports: false,
     users: true
   },
@@ -71,6 +88,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": false,
     "error-reports": false,
     "montagem-sp": true,
+    ti: false,
     imports: false,
     users: false
   },
@@ -80,6 +98,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": false,
     "montagem-sp": false,
+    ti: false,
     imports: false,
     users: false
   }
@@ -344,6 +363,14 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               element={
                 activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/montagem-sp", permissions)
                   ? <MontagemSpPage user={user} />
+                  : <Navigate to={defaultRoute} replace />
+              }
+            />
+            <Route
+              path="/ti"
+              element={
+                activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/ti", permissions)
+                  ? <TiPage />
                   : <Navigate to={defaultRoute} replace />
               }
             />

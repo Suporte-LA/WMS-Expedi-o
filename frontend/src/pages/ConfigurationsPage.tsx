@@ -5,6 +5,7 @@ import type { AccessSettings, Role, ScreenKey, User, Workspace, WorkspaceAccessS
 const SCREEN_LABELS: Record<ScreenKey, string> = {
   dashboard: "Dashboard",
   descents: "Descer Pedidos",
+  ti: "TI",
   "error-check": "Conferencia Erros",
   "error-reports": "Relatorio Erros",
   imports: "Imports",

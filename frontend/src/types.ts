@@ -1,7 +1,15 @@
 export type Role = "admin" | "supervisor" | "operator" | "conferente";
 export type Workspace = "expedicao" | "estoque" | "estoque-ti";
 
-export type ScreenKey = "dashboard" | "descents" | "error-check" | "error-reports" | "imports" | "users" | "montagem-sp";
+export type ScreenKey =
+  | "dashboard"
+  | "descents"
+  | "error-check"
+  | "error-reports"
+  | "imports"
+  | "users"
+  | "montagem-sp"
+  | "ti";
 
 export type User = {
   id: string;
