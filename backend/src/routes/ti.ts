@@ -430,6 +430,15 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     };
   });
 
+  limitRows.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "fora_do_limite" ? -1 : 1;
+    const op = String(a.operation).localeCompare(String(b.operation));
+    if (op !== 0) return op;
+    const nameCmp = String(a.name).localeCompare(String(b.name));
+    if (nameCmp !== 0) return nameCmp;
+    return String(a.maintenance_item).localeCompare(String(b.maintenance_item));
+  });
+
   return res.json({
     reference_date: refDate,
     limits: limitRows,

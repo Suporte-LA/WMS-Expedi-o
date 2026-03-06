@@ -33,7 +33,7 @@ function pickSheet(workbook: XLSX.WorkBook): XLSX.WorkSheet | null {
   return workbook.Sheets[workbook.SheetNames[0]] || null;
 }
 
-function parseRows(buffer: Buffer): Row[] {
+function parseFormRows(buffer: Buffer): Row[] {
   const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
   const sheet = pickSheet(workbook);
   if (!sheet) return [];
@@ -70,6 +70,60 @@ function parseRows(buffer: Buffer): Row[] {
       tabletModel: tabletModel || null
     });
   }
+  return parsed;
+}
+
+function parseMonthRows(buffer: Buffer): Row[] {
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
+  const parsed: Row[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+    if (!rows.length) continue;
+
+    const hasMonthlyCols = rows.some((row) => row["Data/Hora"] || row["Cod Vendedor"]);
+    if (!hasMonthlyCols) continue;
+
+    for (const row of rows) {
+      const submittedAt = parseDate(row["Data/Hora"]) || parseDate(row["Data"]) || new Date();
+      const operation = toText(row["Cod Vendedor"]) || toText(row["Operacao"]) || toText(row["Operação"]);
+      const name = toText(row["Nome"]) || operation;
+      const maintenanceItem =
+        toText(row["Trocado"]) ||
+        toText(row["Tipo"]) ||
+        toText(row["Troca"]) ||
+        toText(row["Tipo de Manutenção"]) ||
+        toText(row["Manutenção"]);
+      if (!operation || !maintenanceItem) continue;
+
+      const rawModel = toText(row["Modelo"]) || toText(row["Modelos"]);
+      const extraModel = toText(row["Unnamed: 10"]);
+      const key = maintenanceItem.toLowerCase();
+      let phoneModel = "";
+      let tabletModel = "";
+
+      if (key.includes("tablet")) {
+        tabletModel = rawModel || extraModel;
+      } else if (key.includes("celular")) {
+        phoneModel = rawModel || extraModel;
+      } else {
+        phoneModel = rawModel;
+        tabletModel = extraModel;
+      }
+
+      parsed.push({
+        submittedAt,
+        name,
+        operation,
+        maintenanceItem,
+        phoneModel: phoneModel || null,
+        tabletModel: tabletModel || null
+      });
+    }
+  }
+
   return parsed;
 }
 
@@ -121,8 +175,10 @@ async function run() {
   }
 
   const buffer = fs.readFileSync(resolved);
-  const rows = parseRows(buffer);
-  console.log(`Linhas lidas: ${rows.length}`);
+  const formRows = parseFormRows(buffer);
+  const monthRows = parseMonthRows(buffer);
+  const rows = [...formRows, ...monthRows];
+  console.log(`Linhas lidas: ${rows.length} (formulario ${formRows.length}, meses ${monthRows.length})`);
 
   let inserted = 0;
   for (const row of rows) {
@@ -139,4 +195,3 @@ run().catch(async (error) => {
   await pool.end();
   process.exit(1);
 });
-
