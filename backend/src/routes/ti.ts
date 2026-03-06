@@ -516,6 +516,8 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
   );
 
   const ref = new Date(refDate);
+  const refEnd = new Date(ref);
+  refEnd.setHours(23, 59, 59, 999);
   const minStart = from ? new Date(from) : null;
   const grouped = new Map<string, { name: string; operation: string; item: string; dates: Date[] }>();
   for (const row of windowed.rows as Array<{ name: string; operation: string; maintenance_item: string; submitted_at: string }>) {
@@ -531,7 +533,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     const start = new Date(ref);
     start.setMonth(start.getMonth() - limit.months);
     const effectiveStart = minStart && minStart > start ? minStart : start;
-    const count = row.dates.filter((d) => d >= effectiveStart && d <= ref).length;
+    const count = row.dates.filter((d) => d >= effectiveStart && d <= refEnd).length;
     return {
       name: row.name,
       operation: row.operation,
