@@ -42,6 +42,10 @@ const historyImportSchema = z.object({
   sheetName: z.string().optional()
 });
 
+const recordParamsSchema = z.object({
+  id: z.string().uuid()
+});
+
 const catalogUpdateParamsSchema = z.object({
   id: z.string().uuid()
 });
@@ -468,6 +472,24 @@ tiRouter.get("/records", authRequired, async (req: AuthenticatedRequest, res) =>
   );
 
   return res.json({ items: result.rows, page, pageSize });
+});
+
+tiRouter.delete("/records/:id", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
+  const parsed = recordParamsSchema.safeParse(req.params);
+  if (!parsed.success) return res.status(400).json({ message: "ID invalido." });
+
+  const result = await pool.query(
+    `
+      DELETE FROM ti_device_records
+      WHERE id = $1
+      RETURNING id
+    `,
+    [parsed.data.id]
+  );
+
+  if (!result.rowCount) return res.status(404).json({ message: "Registro nao encontrado." });
+  return res.status(204).send();
 });
 
 tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) => {

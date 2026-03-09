@@ -51,6 +51,9 @@ export function TiPage() {
   const [phoneModel, setPhoneModel] = useState("");
   const [tabletModel, setTabletModel] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
+  const [recentRecords, setRecentRecords] = useState<Array<any>>([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -111,6 +114,7 @@ export function TiPage() {
       setPhoneModel("");
       setTabletModel("");
       setDeviceType("");
+      await loadRecentRecords();
       await loadControl();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao salvar registro.");
@@ -133,6 +137,36 @@ export function TiPage() {
       setError(err?.response?.data?.message || "Erro ao carregar controle de aparelhos.");
     } finally {
       setControlLoading(false);
+    }
+  }
+
+  async function loadRecentRecords() {
+    setLoadingRecent(true);
+    try {
+      const { data } = await api.get("/ti/records?page=1&pageSize=20");
+      setRecentRecords(data.items || []);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao carregar ultimos informes.");
+    } finally {
+      setLoadingRecent(false);
+    }
+  }
+
+  async function deleteRecord(id: string) {
+    const ok = window.confirm("Deseja excluir este informe?");
+    if (!ok) return;
+    setError("");
+    setMessage("");
+    setDeletingRecordId(id);
+    try {
+      await api.delete(`/ti/records/${id}`);
+      setMessage("Informe excluido com sucesso.");
+      await loadRecentRecords();
+      await loadControl();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao excluir informe.");
+    } finally {
+      setDeletingRecordId(null);
     }
   }
 
@@ -228,6 +262,7 @@ export function TiPage() {
 
   useEffect(() => {
     loadCatalog();
+    loadRecentRecords();
   }, []);
 
   useEffect(() => {
@@ -348,6 +383,54 @@ export function TiPage() {
             </button>
             {message && <span className="text-sm text-emerald-700">{message}</span>}
             {error && <span className="text-sm text-red-700">{error}</span>}
+          </div>
+          <div className="mt-4 rounded-xl border p-3 overflow-auto">
+            <h4 className="font-semibold mb-2">Ultimos informes (corrigir/excluir)</h4>
+            <table className="w-full text-sm min-w-[900px]">
+              <thead>
+                <tr className="text-left border-b">
+                  <th className="py-1">Data/Hora</th>
+                  <th>Nome</th>
+                  <th>Operacao</th>
+                  <th>Manutencao</th>
+                  <th>Celular</th>
+                  <th>Tablet</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRecords.map((row) => (
+                  <tr key={row.id} className="border-b">
+                    <td className="py-1">{new Date(row.submitted_at).toLocaleString("pt-BR")}</td>
+                    <td>{row.name}</td>
+                    <td>{row.operation}</td>
+                    <td>{row.maintenance_item}</td>
+                    <td>{row.phone_model || "-"}</td>
+                    <td>{row.tablet_model || "-"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="rounded-lg bg-red-700 text-white px-2 py-1 text-xs font-semibold"
+                        onClick={() => deleteRecord(row.id)}
+                        disabled={deletingRecordId === row.id}
+                      >
+                        {deletingRecordId === row.id ? "Excluindo..." : "Excluir"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {!recentRecords.length && !loadingRecent && (
+                  <tr>
+                    <td colSpan={7} className="py-2 text-slate-500">Nenhum informe encontrado.</td>
+                  </tr>
+                )}
+                {loadingRecent && (
+                  <tr>
+                    <td colSpan={7} className="py-2 text-slate-500">Carregando...</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
