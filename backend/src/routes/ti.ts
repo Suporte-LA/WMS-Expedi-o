@@ -66,6 +66,13 @@ const normalizeHeader = (value: string) =>
 
 const textLike = (value: unknown): string => (value == null ? "" : String(value).trim());
 
+const normalizeText = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
 function pickField(row: Record<string, unknown>, aliases: string[]) {
   const map = new Map<string, unknown>();
   Object.keys(row).forEach((key) => map.set(normalizeHeader(key), row[key]));
@@ -394,35 +401,132 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
 
   const data = parsed.data;
   const submittedAt = data.submittedAt ? new Date(data.submittedAt) : new Date();
+  const maintenance = data.maintenanceItem.trim();
+  const maintKey = normalizeText(maintenance);
+  const modelRef = (data.phoneModel?.trim() || data.tabletModel?.trim() || "").trim();
 
-  const result = await pool.query(
-    `
-      INSERT INTO ti_device_records (
-        submitted_at,
-        maintenance_item,
-        name,
-        operation,
-        phone_model,
-        tablet_model,
-        created_by_user_id,
-        created_by_name
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-    `,
-    [
-      submittedAt,
-      data.maintenanceItem.trim(),
-      data.name.trim(),
-      data.operation.trim(),
-      data.phoneModel?.trim() || null,
-      data.tabletModel?.trim() || null,
-      req.user.id,
-      req.user.name
-    ]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const created = await client.query(
+      `
+        INSERT INTO ti_device_records (
+          submitted_at,
+          maintenance_item,
+          name,
+          operation,
+          phone_model,
+          tablet_model,
+          created_by_user_id,
+          created_by_name
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+      `,
+      [
+        submittedAt,
+        maintenance,
+        data.name.trim(),
+        data.operation.trim(),
+        data.phoneModel?.trim() || null,
+        data.tabletModel?.trim() || null,
+        req.user.id,
+        req.user.name
+      ]
+    );
 
-  return res.status(201).json(result.rows[0]);
+    let stockIntegration: { status: "moved" | "not_found" | "no_stock" | "skipped"; message: string } = {
+      status: "skipped",
+      message: "Sem modelo para vincular estoque automaticamente."
+    };
+
+    if (modelRef) {
+      const params: unknown[] = [modelRef, `%${modelRef}%`];
+      let kindFilter = "";
+      if (maintKey.includes("pelicula")) {
+        params.push("%pelicula%");
+        kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
+      } else if (maintKey.includes("capinha") || maintKey.includes("capa")) {
+        params.push("%cap%");
+        kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
+      }
+
+      const product = await client.query(
+        `
+          SELECT p.*
+          FROM ti_stock_products p
+          WHERE p.sku = $1
+             OR p.cod = $1
+             OR lower(coalesce(p.description, '')) LIKE lower($2)
+             ${kindFilter}
+          ORDER BY p.current_stock DESC, p.updated_at DESC
+          LIMIT 1
+          FOR UPDATE
+        `,
+        params
+      );
+
+      if (!product.rowCount) {
+        stockIntegration = {
+          status: "not_found",
+          message: `Nao achamos item no Estoque TI para o modelo "${modelRef}".`
+        };
+      } else {
+        const p = product.rows[0];
+        const before = Number(p.current_stock || 0);
+        if (before < 1) {
+          stockIntegration = {
+            status: "no_stock",
+            message: `Estoque TI sem saldo para "${p.description || p.sku}".`
+          };
+        } else {
+          const after = before - 1;
+          await client.query(
+            `
+              UPDATE ti_stock_products
+              SET current_stock = $2, updated_at = now()
+              WHERE id = $1
+            `,
+            [p.id, after]
+          );
+
+          await client.query(
+            `
+              INSERT INTO ti_stock_movements (
+                product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
+                movement_date, guide, movement_code, destination_final
+              )
+              VALUES ($1, 'exit', 1, $2, $3, $4, $5, $6, $7, $8, 'CONSULTOR DE VENDAS', $9)
+            `,
+            [
+              p.id,
+              before,
+              after,
+              `Saida automatica via TI - ${maintenance}`,
+              req.user.id,
+              req.user.name,
+              new Date().toISOString().slice(0, 10),
+              "TI-AUTO",
+              data.name.trim()
+            ]
+          );
+
+          stockIntegration = {
+            status: "moved",
+            message: `Saida automatica registrada no Estoque TI para "${p.description || p.sku}".`
+          };
+        }
+      }
+    }
+
+    await client.query("COMMIT");
+    return res.status(201).json({ ...created.rows[0], stockIntegration });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 tiRouter.get("/records", authRequired, async (req: AuthenticatedRequest, res) => {

@@ -100,14 +100,20 @@ export function TiPage() {
     try {
       const sendPhone = deviceType === "phone" ? phoneModel : maintenanceItem.toLowerCase().includes("celular") ? phoneModel : "";
       const sendTablet = deviceType === "tablet" ? tabletModel : maintenanceItem.toLowerCase().includes("tablet") ? tabletModel : "";
-      await api.post("/ti/records", {
+      const { data } = await api.post("/ti/records", {
         maintenanceItem,
         name,
         operation,
         phoneModel: sendPhone || undefined,
         tabletModel: sendTablet || undefined
       });
-      setMessage("Registro salvo.");
+      if (data?.stockIntegration?.status === "moved") {
+        setMessage(`Registro salvo. ${data.stockIntegration.message}`);
+      } else if (data?.stockIntegration?.message) {
+        setMessage(`Registro salvo. Aviso: ${data.stockIntegration.message}`);
+      } else {
+        setMessage("Registro salvo.");
+      }
       setMaintenanceItem("");
       setName("");
       setOperation("");
