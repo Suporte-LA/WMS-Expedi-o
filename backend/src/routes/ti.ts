@@ -432,11 +432,11 @@ tiRouter.get("/records", authRequired, async (req: AuthenticatedRequest, res) =>
 
   if (from) {
     values.push(from);
-    filters.push(`r.submitted_at::date >= $${values.length}::date`);
+    filters.push(`(r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date >= $${values.length}::date`);
   }
   if (to) {
     values.push(to);
-    filters.push(`r.submitted_at::date <= $${values.length}::date`);
+    filters.push(`(r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date <= $${values.length}::date`);
   }
   if (name?.trim()) {
     values.push(`%${name.trim()}%`);
@@ -481,11 +481,11 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
 
   if (from) {
     values.push(from);
-    filters.push(`r.submitted_at::date >= $${values.length}::date`);
+    filters.push(`(r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date >= $${values.length}::date`);
   }
   if (to) {
     values.push(to);
-    filters.push(`r.submitted_at::date <= $${values.length}::date`);
+    filters.push(`(r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date <= $${values.length}::date`);
   }
   if (name?.trim()) {
     values.push(`%${name.trim()}%`);
@@ -522,7 +522,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
   const monthSummary = await pool.query(
     `
       SELECT
-        to_char(date_trunc('month', r.submitted_at), 'YYYY-MM') AS month,
+        to_char(date_trunc('month', r.submitted_at AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM') AS month,
         r.name,
         r.operation,
         r.maintenance_item,
@@ -546,6 +546,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
           r.operation,
           r.maintenance_item,
           r.submitted_at,
+          (r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date AS local_date,
           CASE
             WHEN lower(r.maintenance_item) LIKE '%pelicula%' THEN 'pelicula'
             WHEN lower(r.maintenance_item) LIKE '%capinha%' THEN 'capinha'
@@ -564,11 +565,11 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
         COALESCE(l.months_limit, 6) AS months_limit,
         COALESCE(l.max_count, 1) AS max_count,
         COUNT(*) FILTER (
-          WHERE b.submitted_at::date >= GREATEST(
+          WHERE b.local_date >= GREATEST(
             ($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6))),
             ${from ? `($${limitValues.length + 1}::date)` : `($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6)))`}
           )
-          AND b.submitted_at::date <= $${limitValues.length}::date
+          AND b.local_date <= $${limitValues.length}::date
         )::int AS total_count
       FROM base b
       LEFT JOIN ti_device_limits l ON l.item = b.limit_key
@@ -576,11 +577,11 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
       ORDER BY
         CASE
           WHEN COUNT(*) FILTER (
-            WHERE b.submitted_at::date >= GREATEST(
+            WHERE b.local_date >= GREATEST(
               ($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6))),
               ${from ? `($${limitValues.length + 1}::date)` : `($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6)))`}
             )
-            AND b.submitted_at::date <= $${limitValues.length}::date
+            AND b.local_date <= $${limitValues.length}::date
           ) > COALESCE(l.max_count, 1) THEN 0 ELSE 1
         END,
         b.operation,
