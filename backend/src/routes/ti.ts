@@ -42,6 +42,17 @@ const historyImportSchema = z.object({
   sheetName: z.string().optional()
 });
 
+const catalogUpdateParamsSchema = z.object({
+  id: z.string().uuid()
+});
+
+const catalogUpdateBodySchema = z.object({
+  name: z.string().min(1),
+  operation: z.string().min(1),
+  phoneModel: z.string().optional(),
+  tabletModel: z.string().optional()
+});
+
 const normalizeHeader = (value: string) =>
   value
     .normalize("NFD")
@@ -328,6 +339,47 @@ tiRouter.get("/catalog/options", authRequired, async (req: AuthenticatedRequest,
     catalog: catalog.rows,
     maintenanceItems: Array.from(maintenanceItems)
   });
+});
+
+tiRouter.patch("/catalog/:id", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
+
+  const parsedParams = catalogUpdateParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) return res.status(400).json({ message: "ID invalido." });
+
+  const parsedBody = catalogUpdateBodySchema.safeParse(req.body);
+  if (!parsedBody.success) return res.status(400).json({ message: "Payload invalido." });
+
+  const { id } = parsedParams.data;
+  const data = parsedBody.data;
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE ti_device_catalog
+        SET
+          name = $2,
+          operation = $3,
+          phone_model = $4,
+          tablet_model = $5,
+          updated_at = now()
+        WHERE id = $1
+        RETURNING id, name, operation, phone_model, tablet_model, updated_at
+      `,
+      [id, data.name.trim(), data.operation.trim(), data.phoneModel?.trim() || null, data.tabletModel?.trim() || null]
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({ message: "Registro nao encontrado." });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error: any) {
+    if (error?.code === "23505") {
+      return res.status(409).json({ message: "Ja existe esse Nome + Operacao na base." });
+    }
+    throw error;
+  }
 });
 
 tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) => {

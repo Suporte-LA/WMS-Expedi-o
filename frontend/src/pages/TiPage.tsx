@@ -41,6 +41,8 @@ export function TiPage() {
   const [importing, setImporting] = useState(false);
   const [importingHistory, setImportingHistory] = useState(false);
   const [catalog, setCatalog] = useState<Array<any>>([]);
+  const [catalogDrafts, setCatalogDrafts] = useState<Record<string, { name: string; operation: string; phone_model: string; tablet_model: string }>>({});
+  const [savingCatalogId, setSavingCatalogId] = useState<string | null>(null);
   const [maintenanceOptions, setMaintenanceOptions] = useState<Array<string>>([]);
   const [deviceType, setDeviceType] = useState<"phone" | "tablet" | "">("");
   const [maintenanceItem, setMaintenanceItem] = useState("");
@@ -63,8 +65,19 @@ export function TiPage() {
 
   async function loadCatalog() {
     const { data } = await api.get("/ti/catalog/options");
-    setCatalog(data.catalog || []);
+    const rows = data.catalog || [];
+    setCatalog(rows);
     setMaintenanceOptions(data.maintenanceItems || []);
+    const drafts: Record<string, { name: string; operation: string; phone_model: string; tablet_model: string }> = {};
+    for (const row of rows) {
+      drafts[row.id] = {
+        name: row.name || "",
+        operation: row.operation || "",
+        phone_model: row.phone_model || "",
+        tablet_model: row.tablet_model || ""
+      };
+    }
+    setCatalogDrafts(drafts);
   }
 
   async function submitRecord() {
@@ -162,6 +175,45 @@ export function TiPage() {
       setError(err?.response?.data?.message || "Erro ao importar historico.");
     } finally {
       setImportingHistory(false);
+    }
+  }
+
+  function updateCatalogDraft(id: string, field: "name" | "operation" | "phone_model" | "tablet_model", value: string) {
+    setCatalogDrafts((prev) => ({
+      ...prev,
+      [id]: {
+        name: prev[id]?.name || "",
+        operation: prev[id]?.operation || "",
+        phone_model: prev[id]?.phone_model || "",
+        tablet_model: prev[id]?.tablet_model || "",
+        [field]: value
+      }
+    }));
+  }
+
+  async function saveCatalogRow(id: string) {
+    const draft = catalogDrafts[id];
+    if (!draft) return;
+    setError("");
+    setMessage("");
+    if (!draft.name.trim() || !draft.operation.trim()) {
+      setError("Nome e Operacao sao obrigatorios para salvar a base.");
+      return;
+    }
+    setSavingCatalogId(id);
+    try {
+      await api.patch(`/ti/catalog/${id}`, {
+        name: draft.name,
+        operation: draft.operation,
+        phoneModel: draft.phone_model,
+        tabletModel: draft.tablet_model
+      });
+      setMessage("Base atualizada com sucesso.");
+      await loadCatalog();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao salvar linha da base.");
+    } finally {
+      setSavingCatalogId(null);
     }
   }
 
@@ -332,6 +384,71 @@ export function TiPage() {
             <button type="button" onClick={importHistory} className="rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold" disabled={importingHistory}>
               {importingHistory ? "Importando..." : "Importar Historico"}
             </button>
+          </div>
+          <div className="pt-2 border-t space-y-2">
+            <h4 className="font-semibold">Editar base cadastrada</h4>
+            <div className="overflow-auto rounded-xl border">
+              <table className="w-full text-sm min-w-[980px]">
+                <thead>
+                  <tr className="text-left border-b bg-slate-50">
+                    <th className="py-2 px-2">Nome</th>
+                    <th className="py-2 px-2">Operacao</th>
+                    <th className="py-2 px-2">Celular (modelo)</th>
+                    <th className="py-2 px-2">Tablet (modelo)</th>
+                    <th className="py-2 px-2 w-[120px]">Acao</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {catalog.map((row) => (
+                    <tr key={row.id} className="border-b">
+                      <td className="p-2">
+                        <input
+                          className="w-full border rounded-lg px-2 py-1"
+                          value={catalogDrafts[row.id]?.name || ""}
+                          onChange={(e) => updateCatalogDraft(row.id, "name", e.target.value)}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="w-full border rounded-lg px-2 py-1"
+                          value={catalogDrafts[row.id]?.operation || ""}
+                          onChange={(e) => updateCatalogDraft(row.id, "operation", e.target.value)}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="w-full border rounded-lg px-2 py-1"
+                          value={catalogDrafts[row.id]?.phone_model || ""}
+                          onChange={(e) => updateCatalogDraft(row.id, "phone_model", e.target.value)}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          className="w-full border rounded-lg px-2 py-1"
+                          value={catalogDrafts[row.id]?.tablet_model || ""}
+                          onChange={(e) => updateCatalogDraft(row.id, "tablet_model", e.target.value)}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <button
+                          type="button"
+                          onClick={() => saveCatalogRow(row.id)}
+                          className="rounded-lg bg-teal-700 text-white px-3 py-1 font-semibold w-full"
+                          disabled={savingCatalogId === row.id}
+                        >
+                          {savingCatalogId === row.id ? "Salvando..." : "Salvar"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!catalog.length && (
+                    <tr>
+                      <td colSpan={5} className="py-2 px-2 text-slate-500">Nenhum registro cadastrado na base.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
