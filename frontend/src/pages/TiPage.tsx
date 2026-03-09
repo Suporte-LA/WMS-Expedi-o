@@ -3,6 +3,37 @@ import { api } from "../lib/api";
 
 type TiSection = "registro" | "controle" | "base";
 
+function normalizeOperation(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function sortOperation(a: string, b: string) {
+  const aa = normalizeOperation(a);
+  const bb = normalizeOperation(b);
+
+  const parse = (raw: string) => {
+    const match = raw.match(/^(vendas|cg)\s*(\d+)/i);
+    if (match) {
+      return {
+        group: match[1].toLowerCase() === "vendas" ? 0 : 1,
+        num: Number(match[2]),
+        raw
+      };
+    }
+    return { group: 2, num: Number.POSITIVE_INFINITY, raw };
+  };
+
+  const pa = parse(aa);
+  const pb = parse(bb);
+
+  if (pa.group !== pb.group) return pa.group - pb.group;
+  if (pa.num !== pb.num) return pa.num - pb.num;
+  return pa.raw.localeCompare(pb.raw, "pt-BR");
+}
+
 export function TiPage() {
   const [activeSection, setActiveSection] = useState<TiSection>("registro");
   const [baseFile, setBaseFile] = useState<File | null>(null);
@@ -203,7 +234,7 @@ export function TiPage() {
             </select>
             <select className="border rounded-xl px-3 py-2" value={operation} onChange={(e) => setOperation(e.target.value)}>
               <option value="">Operacao</option>
-              {Array.from(new Set(catalog.map((c) => c.operation).filter(Boolean))).map((op) => (
+              {Array.from(new Set(catalog.map((c) => c.operation).filter(Boolean))).sort(sortOperation).map((op) => (
                 <option key={op} value={op}>{op}</option>
               ))}
             </select>
