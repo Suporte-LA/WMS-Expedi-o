@@ -111,6 +111,7 @@ export function TiPage() {
       setPhoneModel("");
       setTabletModel("");
       setDeviceType("");
+      await loadControl();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao salvar registro.");
     } finally {
@@ -128,6 +129,8 @@ export function TiPage() {
       const { data } = await api.get(`/ti/control?${params.toString()}`);
       setLimits(data.limits || []);
       setMonthly(data.monthly || []);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao carregar controle de aparelhos.");
     } finally {
       setControlLoading(false);
     }
