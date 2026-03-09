@@ -476,9 +476,9 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
   if (!parsed.success) return res.status(400).json({ message: "Query invalida." });
 
   const { from, to, name, operation, item } = parsed.data;
+  const refDate = to || new Date().toISOString().slice(0, 10);
   const filters: string[] = [];
   const values: unknown[] = [];
-
   if (from) {
     values.push(from);
     filters.push(`(r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date >= $${values.length}::date`);
@@ -499,107 +499,107 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     values.push(`%${item.trim()}%`);
     filters.push(`r.maintenance_item ILIKE $${values.length}`);
   }
-
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-  const refDate = to || new Date().toISOString().slice(0, 10);
 
-  const baseFilters: string[] = [];
-  const baseValues: unknown[] = [];
-  if (name?.trim()) {
-    baseValues.push(`%${name.trim()}%`);
-    baseFilters.push(`r.name ILIKE $${baseValues.length}`);
-  }
-  if (operation?.trim()) {
-    baseValues.push(`%${operation.trim()}%`);
-    baseFilters.push(`r.operation ILIKE $${baseValues.length}`);
-  }
-  if (item?.trim()) {
-    baseValues.push(`%${item.trim()}%`);
-    baseFilters.push(`r.maintenance_item ILIKE $${baseValues.length}`);
-  }
-  const baseWhere = baseFilters.length ? `WHERE ${baseFilters.join(" AND ")}` : "";
-
-  const monthSummary = await pool.query(
-    `
-      SELECT
-        to_char(date_trunc('month', r.submitted_at AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM') AS month,
-        r.name,
-        r.operation,
-        r.maintenance_item,
-        COUNT(*)::int AS total_count
-      FROM ti_device_records r
-      ${where}
-      GROUP BY month, r.name, r.operation, r.maintenance_item
-      ORDER BY month DESC
-    `,
-    values
-  );
-  const limitValues = [...baseValues, refDate];
-  if (from) {
-    limitValues.push(from);
-  }
-  const limitRowsResult = await pool.query(
-    `
-      WITH base AS (
+  const [limitsRes, recordsRes] = await Promise.all([
+    pool.query(`SELECT item, months_limit, max_count FROM ti_device_limits`),
+    pool.query(
+      `
         SELECT
           r.name,
           r.operation,
           r.maintenance_item,
           r.submitted_at,
-          (r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date AS local_date,
-          CASE
-            WHEN lower(r.maintenance_item) LIKE '%pelicula%' THEN 'pelicula'
-            WHEN lower(r.maintenance_item) LIKE '%capinha%' THEN 'capinha'
-            WHEN lower(r.maintenance_item) LIKE '%tablet%' THEN 'tablet'
-            WHEN lower(r.maintenance_item) LIKE '%celular%' THEN 'celular'
-            ELSE lower(r.maintenance_item)
-          END AS limit_key
+          to_char((r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS local_date
         FROM ti_device_records r
-        ${baseWhere}
-      )
-      SELECT
-        b.name,
-        b.operation,
-        b.maintenance_item,
-        MAX(b.submitted_at) AS last_date,
-        COALESCE(l.months_limit, 6) AS months_limit,
-        COALESCE(l.max_count, 1) AS max_count,
-        COUNT(*) FILTER (
-          WHERE b.local_date >= GREATEST(
-            ($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6))),
-            ${from ? `($${limitValues.length + 1}::date)` : `($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6)))`}
-          )
-          AND b.local_date <= $${limitValues.length}::date
-        )::int AS total_count
-      FROM base b
-      LEFT JOIN ti_device_limits l ON l.item = b.limit_key
-      GROUP BY b.name, b.operation, b.maintenance_item, l.months_limit, l.max_count
-      ORDER BY
-        CASE
-          WHEN COUNT(*) FILTER (
-            WHERE b.local_date >= GREATEST(
-              ($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6))),
-              ${from ? `($${limitValues.length + 1}::date)` : `($${limitValues.length}::date - make_interval(months => COALESCE(l.months_limit, 6)))`}
-            )
-            AND b.local_date <= $${limitValues.length}::date
-          ) > COALESCE(l.max_count, 1) THEN 0 ELSE 1
-        END,
-        b.operation,
-        b.name,
-        b.maintenance_item
-    `,
-    limitValues
-  );
+        ${where}
+        ORDER BY r.submitted_at DESC
+      `,
+      values
+    )
+  ]);
 
-  const limitRows = (limitRowsResult.rows || []).map((row: any) => ({
-    ...row,
-    status: Number(row.total_count) > Number(row.max_count) ? "fora_do_limite" : "dentro_do_limite"
-  }));
+  const limitMap = new Map<string, { months: number; max: number }>();
+  for (const row of limitsRes.rows) {
+    limitMap.set(String(row.item).toLowerCase(), {
+      months: Number(row.months_limit) || 6,
+      max: Number(row.max_count) || 1
+    });
+  }
 
-  return res.json({
-    reference_date: refDate,
-    limits: limitRows,
-    monthly: monthSummary.rows
+  const monthlyMap = new Map<string, { month: string; name: string; operation: string; maintenance_item: string; total_count: number }>();
+  for (const row of recordsRes.rows as Array<{ local_date: string; name: string; operation: string; maintenance_item: string }>) {
+    const month = (row.local_date || "").slice(0, 7);
+    const key = `${month}||${row.name}||${row.operation}||${row.maintenance_item}`;
+    const current = monthlyMap.get(key);
+    if (current) {
+      current.total_count += 1;
+    } else {
+      monthlyMap.set(key, {
+        month,
+        name: row.name,
+        operation: row.operation,
+        maintenance_item: row.maintenance_item,
+        total_count: 1
+      });
+    }
+  }
+  const monthly = Array.from(monthlyMap.values()).sort((a, b) => {
+    if (a.month !== b.month) return b.month.localeCompare(a.month);
+    if (a.operation !== b.operation) return a.operation.localeCompare(b.operation);
+    if (a.name !== b.name) return a.name.localeCompare(b.name);
+    return a.maintenance_item.localeCompare(b.maintenance_item);
   });
+
+  const reference = new Date(`${refDate}T12:00:00-03:00`);
+  const fromDate = from ? new Date(`${from}T00:00:00-03:00`) : null;
+  const grouped = new Map<string, { name: string; operation: string; maintenance_item: string; localDates: string[]; lastDate: string }>();
+  for (const row of recordsRes.rows as Array<{ local_date: string; name: string; operation: string; maintenance_item: string }>) {
+    const key = `${row.name}||${row.operation}||${row.maintenance_item}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.localDates.push(row.local_date);
+      if (row.local_date > existing.lastDate) existing.lastDate = row.local_date;
+    } else {
+      grouped.set(key, {
+        name: row.name,
+        operation: row.operation,
+        maintenance_item: row.maintenance_item,
+        localDates: [row.local_date],
+        lastDate: row.local_date
+      });
+    }
+  }
+
+  const limitRows = Array.from(grouped.values()).map((group) => {
+    const key = resolveLimitKey(group.maintenance_item || "");
+    const conf = limitMap.get(key) || { months: 6, max: 1 };
+    const start = new Date(reference);
+    start.setMonth(start.getMonth() - conf.months);
+    const effectiveStart = fromDate && fromDate > start ? fromDate : start;
+    const total = group.localDates.filter((d) => {
+      const current = new Date(`${d}T12:00:00-03:00`);
+      return current >= effectiveStart && current <= reference;
+    }).length;
+    return {
+      name: group.name,
+      operation: group.operation,
+      maintenance_item: group.maintenance_item,
+      last_date: group.lastDate,
+      months_limit: conf.months,
+      max_count: conf.max,
+      total_count: total,
+      status: total > conf.max ? "fora_do_limite" : "dentro_do_limite"
+    };
+  });
+
+  limitRows.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "fora_do_limite" ? -1 : 1;
+    if (a.operation !== b.operation) return a.operation.localeCompare(b.operation);
+    if (a.name !== b.name) return a.name.localeCompare(b.name);
+    return a.maintenance_item.localeCompare(b.maintenance_item);
+  });
+
+  return res.json({ reference_date: refDate, limits: limitRows, monthly });
 });
 
