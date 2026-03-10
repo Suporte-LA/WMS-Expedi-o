@@ -68,7 +68,11 @@ export function TiPage() {
 
   async function loadCatalog() {
     const { data } = await api.get("/ti/catalog/options");
-    const rows = data.catalog || [];
+    const rows = [...(data.catalog || [])].sort((a, b) => {
+      const byOperation = sortOperation(String(a.operation || ""), String(b.operation || ""));
+      if (byOperation !== 0) return byOperation;
+      return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+    });
     setCatalog(rows);
     setMaintenanceOptions(data.maintenanceItems || []);
     const drafts: Record<string, { name: string; operation: string; phone_model: string; tablet_model: string }> = {};
