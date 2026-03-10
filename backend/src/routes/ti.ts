@@ -502,7 +502,7 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
               p.id,
               before,
               after,
-              `Saida automatica via TI - ${maintenance}`,
+              `Saida automatica via TI - ${maintenance} | TI_RECORD:${created.rows[0].id}`,
               req.user.id,
               req.user.name,
               new Date().toISOString().slice(0, 10),
@@ -583,17 +583,96 @@ tiRouter.delete("/records/:id", authRequired, async (req: AuthenticatedRequest, 
   const parsed = recordParamsSchema.safeParse(req.params);
   if (!parsed.success) return res.status(400).json({ message: "ID invalido." });
 
-  const result = await pool.query(
-    `
-      DELETE FROM ti_device_records
-      WHERE id = $1
-      RETURNING id
-    `,
-    [parsed.data.id]
-  );
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const recordResult = await client.query(
+      `
+        SELECT id, name, maintenance_item
+        FROM ti_device_records
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [parsed.data.id]
+    );
+    if (!recordResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Registro nao encontrado." });
+    }
 
-  if (!result.rowCount) return res.status(404).json({ message: "Registro nao encontrado." });
-  return res.status(204).send();
+    let stockReversal: { status: "reverted" | "not_found"; message: string } = {
+      status: "not_found",
+      message: "Sem saida automatica vinculada para reverter."
+    };
+
+    const movementResult = await client.query(
+      `
+        SELECT m.*, p.id AS product_id, p.current_stock
+        FROM ti_stock_movements m
+        JOIN ti_stock_products p ON p.id = m.product_id
+        WHERE m.movement_type = 'exit'
+          AND COALESCE(m.notes, '') LIKE $1
+        ORDER BY m.created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [`%TI_RECORD:${parsed.data.id}%`]
+    );
+
+    if (movementResult.rowCount) {
+      const movement = movementResult.rows[0];
+      const qty = Number(movement.quantity || 0);
+      const current = Number(movement.current_stock || 0);
+      const next = current + qty;
+      await client.query(
+        `
+          UPDATE ti_stock_products
+          SET current_stock = $2, updated_at = now()
+          WHERE id = $1
+        `,
+        [movement.product_id, next]
+      );
+      await client.query(
+        `
+          INSERT INTO ti_stock_movements (
+            product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
+            movement_date, guide, movement_code, destination_final
+          )
+          VALUES ($1, 'return', $2, $3, $4, $5, $6, $7, $8, 'TI-AUTO-REV', 'ESTOQUE TI', $9)
+        `,
+        [
+          movement.product_id,
+          qty,
+          current,
+          next,
+          `Reversao automatica da saida TI | TI_RECORD:${parsed.data.id}`,
+          req.user?.id || movement.created_by_user_id || null,
+          req.user?.name || movement.created_by_name || "Sistema",
+          new Date().toISOString().slice(0, 10),
+          recordResult.rows[0].name || null
+        ]
+      );
+      stockReversal = {
+        status: "reverted",
+        message: "Saldo revertido automaticamente no Estoque TI."
+      };
+    }
+
+    await client.query(
+      `
+        DELETE FROM ti_device_records
+        WHERE id = $1
+      `,
+      [parsed.data.id]
+    );
+    await client.query("COMMIT");
+    return res.status(200).json({ success: true, stockReversal });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 });
 
 tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) => {

@@ -169,8 +169,14 @@ export function TiPage() {
     setMessage("");
     setDeletingRecordId(id);
     try {
-      await api.delete(`/ti/records/${id}`);
-      setMessage("Informe excluido com sucesso.");
+      const { data } = await api.delete(`/ti/records/${id}`);
+      if (data?.stockReversal?.status === "reverted") {
+        setMessage(`Informe excluido. ${data.stockReversal.message}`);
+      } else if (data?.stockReversal?.message) {
+        setMessage(`Informe excluido. Aviso: ${data.stockReversal.message}`);
+      } else {
+        setMessage("Informe excluido com sucesso.");
+      }
       await loadRecentRecords();
       await loadControl();
     } catch (err: any) {
