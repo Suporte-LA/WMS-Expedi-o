@@ -94,12 +94,13 @@ export function StockTiPage({ user }: { user: User }) {
 
   async function loadReport() {
     setReportLoading(true);
+    setError("");
     try {
       const movementParams = new URLSearchParams({
         from: reportFrom,
         to: reportTo,
         page: "1",
-        pageSize: "500"
+        pageSize: "200"
       });
       if (reportMovementType !== "all") movementParams.set("movementType", reportMovementType);
       if (reportMovementSearch.trim()) movementParams.set("search", reportMovementSearch.trim());
@@ -111,6 +112,10 @@ export function StockTiPage({ user }: { user: User }) {
 
       setReport(reportRes.data);
       setReportMovements(movementsRes.data.items || []);
+    } catch (err: any) {
+      setReport(null);
+      setReportMovements([]);
+      setError(err?.response?.data?.message || "Falha ao carregar relatorio de movimentacao.");
     } finally {
       setReportLoading(false);
     }
