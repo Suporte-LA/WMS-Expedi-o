@@ -50,6 +50,8 @@ export function TiPage() {
   const [operation, setOperation] = useState("");
   const [phoneModel, setPhoneModel] = useState("");
   const [tabletModel, setTabletModel] = useState("");
+  const [deliveredPhoneModel, setDeliveredPhoneModel] = useState("");
+  const [deliveredTabletModel, setDeliveredTabletModel] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [recentRecords, setRecentRecords] = useState<Array<any>>([]);
@@ -100,6 +102,20 @@ export function TiPage() {
         return;
       }
     }
+    if ((maintenanceItem || "").toLowerCase().includes("aparelho")) {
+      if (!deviceType) {
+        setError("Selecione Celular ou Tablet.");
+        return;
+      }
+      if (deviceType === "phone" && !deliveredPhoneModel.trim()) {
+        setError("Selecione o aparelho de celular entregue.");
+        return;
+      }
+      if (deviceType === "tablet" && !deliveredTabletModel.trim()) {
+        setError("Selecione o aparelho de tablet entregue.");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const sendPhone = deviceType === "phone" ? phoneModel : maintenanceItem.toLowerCase().includes("celular") ? phoneModel : "";
@@ -109,7 +125,9 @@ export function TiPage() {
         name,
         operation,
         phoneModel: sendPhone || undefined,
-        tabletModel: sendTablet || undefined
+        tabletModel: sendTablet || undefined,
+        deliveredPhoneModel: deliveredPhoneModel || undefined,
+        deliveredTabletModel: deliveredTabletModel || undefined
       });
       if (data?.stockIntegration?.status === "moved") {
         setMessage(`Registro salvo. ${data.stockIntegration.message}`);
@@ -123,6 +141,8 @@ export function TiPage() {
       setOperation("");
       setPhoneModel("");
       setTabletModel("");
+      setDeliveredPhoneModel("");
+      setDeliveredTabletModel("");
       setDeviceType("");
       await loadRecentRecords();
       await loadControl();
@@ -354,7 +374,7 @@ export function TiPage() {
                   <option key={n} value={n}>{n}</option>
                 ))}
             </select>
-            {["pelicula", "capinha"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) && (
+            {["pelicula", "capinha", "aparelho"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) && (
               <select className="border rounded-xl px-3 py-2" value={deviceType} onChange={(e) => setDeviceType(e.target.value as "phone" | "tablet" | "")}>
                 <option value="">Celular ou Tablet</option>
                 <option value="phone">Celular</option>
@@ -385,6 +405,22 @@ export function TiPage() {
                   .map((m: string) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
+              </select>
+            )}
+            {(maintenanceItem || "").toLowerCase().includes("aparelho") && deviceType === "phone" && (
+              <select className="border rounded-xl px-3 py-2" value={deliveredPhoneModel} onChange={(e) => setDeliveredPhoneModel(e.target.value)}>
+                <option value="">Aparelho entregue (celular)</option>
+                {Array.from(new Set(catalog.map((c) => c.phone_model).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")).map((m: string) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            )}
+            {(maintenanceItem || "").toLowerCase().includes("aparelho") && deviceType === "tablet" && (
+              <select className="border rounded-xl px-3 py-2" value={deliveredTabletModel} onChange={(e) => setDeliveredTabletModel(e.target.value)}>
+                <option value="">Aparelho entregue (tablet)</option>
+                {Array.from(new Set(catalog.map((c) => c.tablet_model).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")).map((m: string) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </select>
             )}
           </div>

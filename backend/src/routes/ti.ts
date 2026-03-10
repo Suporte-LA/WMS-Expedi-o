@@ -13,6 +13,8 @@ const recordSchema = z.object({
   operation: z.string().min(1),
   phoneModel: z.string().optional(),
   tabletModel: z.string().optional(),
+  deliveredPhoneModel: z.string().optional(),
+  deliveredTabletModel: z.string().optional(),
   submittedAt: z.string().optional()
 });
 
@@ -72,6 +74,41 @@ const normalizeText = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+
+async function findTiStockProductForModel(
+  client: any,
+  modelRef: string,
+  maintKey: string,
+  lockRow = true
+): Promise<any | null> {
+  const params: unknown[] = [modelRef, `%${modelRef}%`];
+  let kindFilter = "";
+  if (maintKey.includes("pelicula")) {
+    params.push("%pelicula%");
+    kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
+  } else if (maintKey.includes("capinha") || maintKey.includes("capa")) {
+    params.push("%cap%");
+    kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
+  }
+
+  const lockClause = lockRow ? "FOR UPDATE" : "";
+  const product = await client.query(
+    `
+      SELECT p.*
+      FROM ti_stock_products p
+      WHERE p.sku = $1
+         OR p.cod = $1
+         OR lower(coalesce(p.description, '')) LIKE lower($2)
+         ${kindFilter}
+      ORDER BY p.current_stock DESC, p.updated_at DESC
+      LIMIT 1
+      ${lockClause}
+    `,
+    params
+  );
+  if (!product.rowCount) return null;
+  return product.rows[0];
+}
 
 function pickField(row: Record<string, unknown>, aliases: string[]) {
   const map = new Map<string, unknown>();
@@ -440,83 +477,114 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
       message: "Sem modelo para vincular estoque automaticamente."
     };
 
-    if (modelRef) {
-      const params: unknown[] = [modelRef, `%${modelRef}%`];
-      let kindFilter = "";
-      if (maintKey.includes("pelicula")) {
-        params.push("%pelicula%");
-        kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
-      } else if (maintKey.includes("capinha") || maintKey.includes("capa")) {
-        params.push("%cap%");
-        kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
-      }
+    const deliveredModelRef = (data.deliveredPhoneModel?.trim() || data.deliveredTabletModel?.trim() || "").trim();
+    const isDeviceExchange = maintKey.includes("aparelho");
+    const integrationMessages: string[] = [];
 
-      const product = await client.query(
-        `
-          SELECT p.*
-          FROM ti_stock_products p
-          WHERE p.sku = $1
-             OR p.cod = $1
-             OR lower(coalesce(p.description, '')) LIKE lower($2)
-             ${kindFilter}
-          ORDER BY p.current_stock DESC, p.updated_at DESC
-          LIMIT 1
-          FOR UPDATE
-        `,
-        params
-      );
-
-      if (!product.rowCount) {
-        stockIntegration = {
-          status: "not_found",
-          message: `Nao achamos item no Estoque TI para o modelo "${modelRef}".`
-        };
+    if (isDeviceExchange && modelRef) {
+      const oldProduct = await findTiStockProductForModel(client, modelRef, maintKey, true);
+      if (!oldProduct) {
+        integrationMessages.push(`Nao achamos aparelho antigo "${modelRef}" para entrada no estoque.`);
       } else {
-        const p = product.rows[0];
-        const before = Number(p.current_stock || 0);
-        if (before < 1) {
+        const before = Number(oldProduct.current_stock || 0);
+        const after = before + 1;
+        await client.query(
+          `
+            UPDATE ti_stock_products
+            SET current_stock = $2, updated_at = now()
+            WHERE id = $1
+          `,
+          [oldProduct.id, after]
+        );
+        await client.query(
+          `
+            INSERT INTO ti_stock_movements (
+              product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
+              movement_date, guide, movement_code, destination_final
+            )
+            VALUES ($1, 'return', 1, $2, $3, $4, $5, $6, $7, 'TI-AUTO-EXCHANGE', 'ESTOQUE TI', $8)
+          `,
+          [
+            oldProduct.id,
+            before,
+            after,
+            `Entrada automatica via TI troca - ${maintenance} | TI_RECORD:${created.rows[0].id}`,
+            req.user.id,
+            req.user.name,
+            new Date().toISOString().slice(0, 10),
+            data.name.trim()
+          ]
+        );
+        integrationMessages.push(`Entrada automatica registrada para "${oldProduct.description || oldProduct.sku}".`);
+      }
+    }
+
+    if (isDeviceExchange && !deliveredModelRef) {
+      stockIntegration = {
+        status: "skipped",
+        message: "Registro salvo, mas faltou informar o aparelho entregue para gerar a saida no estoque."
+      };
+    } else {
+      const exitModelRef = isDeviceExchange ? deliveredModelRef : modelRef;
+      if (exitModelRef) {
+        const product = await findTiStockProductForModel(client, exitModelRef, maintKey, true);
+        if (!product) {
           stockIntegration = {
-            status: "no_stock",
-            message: `Estoque TI sem saldo para "${p.description || p.sku}".`
+            status: "not_found",
+            message: `Nao achamos item no Estoque TI para o modelo "${exitModelRef}".`
           };
         } else {
-          const after = before - 1;
-          await client.query(
-            `
-              UPDATE ti_stock_products
-              SET current_stock = $2, updated_at = now()
-              WHERE id = $1
-            `,
-            [p.id, after]
-          );
+          const before = Number(product.current_stock || 0);
+          if (before < 1) {
+            stockIntegration = {
+              status: "no_stock",
+              message: `Estoque TI sem saldo para "${product.description || product.sku}".`
+            };
+          } else {
+            const after = before - 1;
+            await client.query(
+              `
+                UPDATE ti_stock_products
+                SET current_stock = $2, updated_at = now()
+                WHERE id = $1
+              `,
+              [product.id, after]
+            );
+            await client.query(
+              `
+                INSERT INTO ti_stock_movements (
+                  product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
+                  movement_date, guide, movement_code, destination_final
+                )
+                VALUES ($1, 'exit', 1, $2, $3, $4, $5, $6, $7, $8, 'CONSULTOR DE VENDAS', $9)
+              `,
+              [
+                product.id,
+                before,
+                after,
+                `Saida automatica via TI - ${maintenance} | TI_RECORD:${created.rows[0].id}`,
+                req.user.id,
+                req.user.name,
+                new Date().toISOString().slice(0, 10),
+                "TI-AUTO",
+                data.name.trim()
+              ]
+            );
 
-          await client.query(
-            `
-              INSERT INTO ti_stock_movements (
-                product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
-                movement_date, guide, movement_code, destination_final
-              )
-              VALUES ($1, 'exit', 1, $2, $3, $4, $5, $6, $7, $8, 'CONSULTOR DE VENDAS', $9)
-            `,
-            [
-              p.id,
-              before,
-              after,
-              `Saida automatica via TI - ${maintenance} | TI_RECORD:${created.rows[0].id}`,
-              req.user.id,
-              req.user.name,
-              new Date().toISOString().slice(0, 10),
-              "TI-AUTO",
-              data.name.trim()
-            ]
-          );
-
-          stockIntegration = {
-            status: "moved",
-            message: `Saida automatica registrada no Estoque TI para "${p.description || p.sku}".`
-          };
+            stockIntegration = {
+              status: "moved",
+              message: `Saida automatica registrada no Estoque TI para "${product.description || product.sku}".`
+            };
+          }
         }
       }
+    }
+
+    if (integrationMessages.length) {
+      stockIntegration = {
+        status: stockIntegration.status === "moved" ? "moved" : "skipped",
+        message: [...integrationMessages, stockIntegration.message].filter(Boolean).join(" ")
+      };
     }
 
     await client.query("COMMIT");
@@ -610,51 +678,55 @@ tiRouter.delete("/records/:id", authRequired, async (req: AuthenticatedRequest, 
         SELECT m.*, p.id AS product_id, p.current_stock
         FROM ti_stock_movements m
         JOIN ti_stock_products p ON p.id = m.product_id
-        WHERE m.movement_type = 'exit'
+        WHERE m.movement_type IN ('exit', 'return')
           AND COALESCE(m.notes, '') LIKE $1
         ORDER BY m.created_at DESC
-        LIMIT 1
         FOR UPDATE
       `,
       [`%TI_RECORD:${parsed.data.id}%`]
     );
 
     if (movementResult.rowCount) {
-      const movement = movementResult.rows[0];
-      const qty = Number(movement.quantity || 0);
-      const current = Number(movement.current_stock || 0);
-      const next = current + qty;
-      await client.query(
-        `
-          UPDATE ti_stock_products
-          SET current_stock = $2, updated_at = now()
-          WHERE id = $1
-        `,
-        [movement.product_id, next]
-      );
-      await client.query(
-        `
-          INSERT INTO ti_stock_movements (
-            product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
-            movement_date, guide, movement_code, destination_final
-          )
-          VALUES ($1, 'return', $2, $3, $4, $5, $6, $7, $8, 'TI-AUTO-REV', 'ESTOQUE TI', $9)
-        `,
-        [
-          movement.product_id,
-          qty,
-          current,
-          next,
-          `Reversao automatica da saida TI | TI_RECORD:${parsed.data.id}`,
-          req.user?.id || movement.created_by_user_id || null,
-          req.user?.name || movement.created_by_name || "Sistema",
-          new Date().toISOString().slice(0, 10),
-          recordResult.rows[0].name || null
-        ]
-      );
+      for (const movement of movementResult.rows) {
+        const qty = Number(movement.quantity || 0);
+        const current = Number(movement.current_stock || 0);
+        const reverseType = movement.movement_type === "exit" ? "return" : "exit";
+        const next = reverseType === "return" ? current + qty : current - qty;
+        if (next < 0) continue;
+
+        await client.query(
+          `
+            UPDATE ti_stock_products
+            SET current_stock = $2, updated_at = now()
+            WHERE id = $1
+          `,
+          [movement.product_id, next]
+        );
+        await client.query(
+          `
+            INSERT INTO ti_stock_movements (
+              product_id, movement_type, quantity, stock_before, stock_after, notes, created_by_user_id, created_by_name,
+              movement_date, guide, movement_code, destination_final
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'TI-AUTO-REV', 'ESTOQUE TI', $10)
+          `,
+          [
+            movement.product_id,
+            reverseType,
+            qty,
+            current,
+            next,
+            `Reversao automatica de movimento TI (${movement.movement_type}) | TI_RECORD:${parsed.data.id}`,
+            req.user?.id || movement.created_by_user_id || null,
+            req.user?.name || movement.created_by_name || "Sistema",
+            new Date().toISOString().slice(0, 10),
+            recordResult.rows[0].name || null
+          ]
+        );
+      }
       stockReversal = {
         status: "reverted",
-        message: "Saldo revertido automaticamente no Estoque TI."
+        message: "Movimentacoes automaticas revertidas no Estoque TI."
       };
     }
 
