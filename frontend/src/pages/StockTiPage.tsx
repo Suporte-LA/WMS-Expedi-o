@@ -82,6 +82,10 @@ export function StockTiPage({ user }: { user: User }) {
   const [reportFrom, setReportFrom] = useState(isoDaysAgo(30));
   const [reportTo, setReportTo] = useState(isoToday());
   const [report, setReport] = useState<TiReport | null>(null);
+  const [reportMovementType, setReportMovementType] = useState<"all" | "entry" | "exit" | "return">("all");
+  const [reportMovementSearch, setReportMovementSearch] = useState("");
+  const [reportMovements, setReportMovements] = useState<TiStockMovement[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
   const [activeView, setActiveView] = useState<"movement" | "report">("movement");
 
   const [products, setProducts] = useState<TiStockProduct[]>([]);
@@ -89,8 +93,27 @@ export function StockTiPage({ user }: { user: User }) {
   const [lowAlerts, setLowAlerts] = useState<TiStockProduct[]>([]);
 
   async function loadReport() {
-    const { data } = await api.get(`/ti-stock/report?from=${reportFrom}&to=${reportTo}`);
-    setReport(data);
+    setReportLoading(true);
+    try {
+      const movementParams = new URLSearchParams({
+        from: reportFrom,
+        to: reportTo,
+        page: "1",
+        pageSize: "500"
+      });
+      if (reportMovementType !== "all") movementParams.set("movementType", reportMovementType);
+      if (reportMovementSearch.trim()) movementParams.set("search", reportMovementSearch.trim());
+
+      const [reportRes, movementsRes] = await Promise.all([
+        api.get(`/ti-stock/report?from=${reportFrom}&to=${reportTo}`),
+        api.get(`/ti-stock/movements?${movementParams.toString()}`)
+      ]);
+
+      setReport(reportRes.data);
+      setReportMovements(movementsRes.data.items || []);
+    } finally {
+      setReportLoading(false);
+    }
   }
 
   async function loadData() {
@@ -360,6 +383,18 @@ export function StockTiPage({ user }: { user: User }) {
             <div className="flex items-center gap-2">
               <input className="border rounded-lg px-3 py-1 text-sm" type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} />
               <input className="border rounded-lg px-3 py-1 text-sm" type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} />
+              <select className="border rounded-lg px-3 py-1 text-sm" value={reportMovementType} onChange={(e) => setReportMovementType(e.target.value as "all" | "entry" | "exit" | "return")}>
+                <option value="all">Todos os tipos</option>
+                <option value="entry">Entrada</option>
+                <option value="exit">Saida</option>
+                <option value="return">Devolucao</option>
+              </select>
+              <input
+                className="border rounded-lg px-3 py-1 text-sm"
+                placeholder="Buscar SKU/Cod/Descricao/Usuario"
+                value={reportMovementSearch}
+                onChange={(e) => setReportMovementSearch(e.target.value)}
+              />
               <button type="button" className="rounded-lg border px-3 py-1 text-sm" onClick={loadReport}>Atualizar</button>
             </div>
           </div>
@@ -458,6 +493,58 @@ export function StockTiPage({ user }: { user: User }) {
                     ))}
                     {!report.entryDetails?.length && (
                       <tr><td className="py-2 text-slate-500" colSpan={6}>Sem entradas no periodo.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-xl border p-3 overflow-auto">
+                <h4 className="font-semibold mb-2">Lista completa de movimentacoes no periodo</h4>
+                <table className="w-full text-sm min-w-[1200px]">
+                  <thead>
+                    <tr className="text-left border-b">
+                      <th className="py-1">Data/Hora</th>
+                      <th>Tipo</th>
+                      <th>Data Saida</th>
+                      <th>SKU</th>
+                      <th>Cod</th>
+                      <th>Descricao</th>
+                      <th>Guia</th>
+                      <th>Movimentacao</th>
+                      <th>Destino final</th>
+                      <th>Qtd</th>
+                      <th>Antes</th>
+                      <th>Depois</th>
+                      <th>Usuario</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportMovements.map((m) => (
+                      <tr key={m.id} className="border-b">
+                        <td className="py-1">{new Date(m.created_at).toLocaleString("pt-BR")}</td>
+                        <td>{movementTypeLabel[m.movement_type]}</td>
+                        <td>{m.movement_date || "-"}</td>
+                        <td>{m.sku || "-"}</td>
+                        <td>{m.cod || "-"}</td>
+                        <td>{m.description || m.category || "-"}</td>
+                        <td>{m.guide || "-"}</td>
+                        <td>{m.movement_code || "-"}</td>
+                        <td>{m.destination_final || "-"}</td>
+                        <td>{m.quantity}</td>
+                        <td>{m.stock_before}</td>
+                        <td>{m.stock_after}</td>
+                        <td>{m.created_by_name}</td>
+                      </tr>
+                    ))}
+                    {!reportMovements.length && !reportLoading && (
+                      <tr>
+                        <td className="py-2 text-slate-500" colSpan={13}>Nenhuma movimentacao encontrada no periodo/filtro.</td>
+                      </tr>
+                    )}
+                    {reportLoading && (
+                      <tr>
+                        <td className="py-2 text-slate-500" colSpan={13}>Carregando movimentacoes...</td>
+                      </tr>
                     )}
                   </tbody>
                 </table>
