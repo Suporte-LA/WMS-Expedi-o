@@ -69,6 +69,8 @@ export function TiPage() {
   const [monthly, setMonthly] = useState<Array<any>>([]);
   const maintenanceKey = (maintenanceItem || "").toLowerCase().trim();
   const isDeviceExchange = maintenanceKey.includes("aparelho") || maintenanceKey === "celular" || maintenanceKey === "tablet";
+  const effectiveDeviceType: "phone" | "tablet" | "" =
+    maintenanceKey === "celular" ? "phone" : maintenanceKey === "tablet" ? "tablet" : deviceType;
 
   async function loadCatalog() {
     const { data } = await api.get("/ti/catalog/options");
@@ -105,23 +107,23 @@ export function TiPage() {
       }
     }
     if (isDeviceExchange) {
-      if (!deviceType) {
+      if (!effectiveDeviceType) {
         setError("Selecione Celular ou Tablet.");
         return;
       }
-      if (deviceType === "phone" && !deliveredPhoneModel.trim()) {
+      if (effectiveDeviceType === "phone" && !deliveredPhoneModel.trim()) {
         setError("Selecione o aparelho de celular entregue.");
         return;
       }
-      if (deviceType === "tablet" && !deliveredTabletModel.trim()) {
+      if (effectiveDeviceType === "tablet" && !deliveredTabletModel.trim()) {
         setError("Selecione o aparelho de tablet entregue.");
         return;
       }
     }
     setSubmitting(true);
     try {
-      const sendPhone = deviceType === "phone" ? phoneModel : maintenanceItem.toLowerCase().includes("celular") ? phoneModel : "";
-      const sendTablet = deviceType === "tablet" ? tabletModel : maintenanceItem.toLowerCase().includes("tablet") ? tabletModel : "";
+      const sendPhone = effectiveDeviceType === "phone" ? phoneModel : maintenanceItem.toLowerCase().includes("celular") ? phoneModel : "";
+      const sendTablet = effectiveDeviceType === "tablet" ? tabletModel : maintenanceItem.toLowerCase().includes("tablet") ? tabletModel : "";
       const { data } = await api.post("/ti/records", {
         maintenanceItem,
         name,
@@ -383,7 +385,7 @@ export function TiPage() {
                 <option value="tablet">Tablet</option>
               </select>
             ) : null}
-            {((maintenanceItem || "").toLowerCase().includes("celular") || deviceType === "phone") && (
+            {((maintenanceItem || "").toLowerCase().includes("celular") || effectiveDeviceType === "phone") && (
               <select className="border rounded-xl px-3 py-2" value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)}>
                 <option value="">Celulares (modelo)</option>
                 {catalog
@@ -396,7 +398,7 @@ export function TiPage() {
                   ))}
               </select>
             )}
-            {((maintenanceItem || "").toLowerCase().includes("tablet") || deviceType === "tablet") && (
+            {((maintenanceItem || "").toLowerCase().includes("tablet") || effectiveDeviceType === "tablet") && (
               <select className="border rounded-xl px-3 py-2" value={tabletModel} onChange={(e) => setTabletModel(e.target.value)}>
                 <option value="">Tablets (modelo)</option>
                 {catalog
@@ -409,7 +411,7 @@ export function TiPage() {
                   ))}
               </select>
             )}
-            {isDeviceExchange && deviceType === "phone" && (
+            {isDeviceExchange && effectiveDeviceType === "phone" && (
               <select className="border rounded-xl px-3 py-2" value={deliveredPhoneModel} onChange={(e) => setDeliveredPhoneModel(e.target.value)}>
                 <option value="">Aparelho entregue (celular)</option>
                 {Array.from(new Set(catalog.map((c) => c.phone_model).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")).map((m: string) => (
@@ -417,7 +419,7 @@ export function TiPage() {
                 ))}
               </select>
             )}
-            {isDeviceExchange && deviceType === "tablet" && (
+            {isDeviceExchange && effectiveDeviceType === "tablet" && (
               <select className="border rounded-xl px-3 py-2" value={deliveredTabletModel} onChange={(e) => setDeliveredTabletModel(e.target.value)}>
                 <option value="">Aparelho entregue (tablet)</option>
                 {Array.from(new Set(catalog.map((c) => c.tablet_model).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")).map((m: string) => (
