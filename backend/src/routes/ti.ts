@@ -478,7 +478,7 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
     };
 
     const deliveredModelRef = (data.deliveredPhoneModel?.trim() || data.deliveredTabletModel?.trim() || "").trim();
-    const isDeviceExchange = maintKey.includes("aparelho");
+    const isDeviceExchange = maintKey.includes("aparelho") || maintKey === "celular" || maintKey === "tablet";
     const integrationMessages: string[] = [];
 
     if (isDeviceExchange && modelRef) {

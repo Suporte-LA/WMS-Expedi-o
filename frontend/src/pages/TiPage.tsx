@@ -67,6 +67,8 @@ export function TiPage() {
   const [controlLoading, setControlLoading] = useState(false);
   const [limits, setLimits] = useState<Array<any>>([]);
   const [monthly, setMonthly] = useState<Array<any>>([]);
+  const maintenanceKey = (maintenanceItem || "").toLowerCase().trim();
+  const isDeviceExchange = maintenanceKey.includes("aparelho") || maintenanceKey === "celular" || maintenanceKey === "tablet";
 
   async function loadCatalog() {
     const { data } = await api.get("/ti/catalog/options");
@@ -102,7 +104,7 @@ export function TiPage() {
         return;
       }
     }
-    if ((maintenanceItem || "").toLowerCase().includes("aparelho")) {
+    if (isDeviceExchange) {
       if (!deviceType) {
         setError("Selecione Celular ou Tablet.");
         return;
@@ -374,13 +376,13 @@ export function TiPage() {
                   <option key={n} value={n}>{n}</option>
                 ))}
             </select>
-            {["pelicula", "capinha", "aparelho"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) && (
+            {["pelicula", "capinha", "aparelho"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) || isDeviceExchange ? (
               <select className="border rounded-xl px-3 py-2" value={deviceType} onChange={(e) => setDeviceType(e.target.value as "phone" | "tablet" | "")}>
                 <option value="">Celular ou Tablet</option>
                 <option value="phone">Celular</option>
                 <option value="tablet">Tablet</option>
               </select>
-            )}
+            ) : null}
             {((maintenanceItem || "").toLowerCase().includes("celular") || deviceType === "phone") && (
               <select className="border rounded-xl px-3 py-2" value={phoneModel} onChange={(e) => setPhoneModel(e.target.value)}>
                 <option value="">Celulares (modelo)</option>
@@ -407,7 +409,7 @@ export function TiPage() {
                   ))}
               </select>
             )}
-            {(maintenanceItem || "").toLowerCase().includes("aparelho") && deviceType === "phone" && (
+            {isDeviceExchange && deviceType === "phone" && (
               <select className="border rounded-xl px-3 py-2" value={deliveredPhoneModel} onChange={(e) => setDeliveredPhoneModel(e.target.value)}>
                 <option value="">Aparelho entregue (celular)</option>
                 {Array.from(new Set(catalog.map((c) => c.phone_model).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")).map((m: string) => (
@@ -415,7 +417,7 @@ export function TiPage() {
                 ))}
               </select>
             )}
-            {(maintenanceItem || "").toLowerCase().includes("aparelho") && deviceType === "tablet" && (
+            {isDeviceExchange && deviceType === "tablet" && (
               <select className="border rounded-xl px-3 py-2" value={deliveredTabletModel} onChange={(e) => setDeliveredTabletModel(e.target.value)}>
                 <option value="">Aparelho entregue (tablet)</option>
                 {Array.from(new Set(catalog.map((c) => c.tablet_model).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), "pt-BR")).map((m: string) => (
