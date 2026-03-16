@@ -22,6 +22,11 @@ const ERROR_OPTIONS = [
   "Caixa no remanjado"
 ];
 
+const MISSING_ORDER_OPTIONS = [
+  "Pedido nao registrado anteriormente",
+  "Pedido no palete interno"
+];
+
 export function ErrorCheckPage({ user }: { user: User }) {
   const [orderNumber, setOrderNumber] = useState("");
   const [problemType, setProblemType] = useState("");
@@ -33,6 +38,7 @@ export function ErrorCheckPage({ user }: { user: User }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [missingOrderProblem, setMissingOrderProblem] = useState("");
 
   async function searchOrder(value?: string) {
     const scanned = (value ?? orderNumber).trim();
@@ -47,8 +53,15 @@ export function ErrorCheckPage({ user }: { user: User }) {
       setDock(data.route || "");
       setReportDate((data.work_date || "").slice(0, 10));
       setProblemType("");
+      setMissingOrderProblem("");
       setImage(null);
     } catch {
+      setOrderNumber(scanned);
+      setReportDate(new Date().toISOString().slice(0, 10));
+      setDock("");
+      setProblemType("");
+      setMissingOrderProblem("");
+      setImage(null);
       setError("Pedido nao encontrado em descidas.");
     }
   }
@@ -62,11 +75,11 @@ export function ErrorCheckPage({ user }: { user: User }) {
       setError("Informe o pedido.");
       return;
     }
-    if (!lookup) {
-      setError("Bipe um pedido valido para preencher os dados automaticamente.");
+    if (!lookup && !missingOrderProblem) {
+      setError("Selecione uma das opcoes para pedido nao encontrado.");
       return;
     }
-    if (!problemType) {
+    if (lookup && !problemType) {
       setError("Selecione qual erro gerado.");
       return;
     }
@@ -77,12 +90,16 @@ export function ErrorCheckPage({ user }: { user: User }) {
 
     setLoading(true);
     try {
+      const finalProblemType = lookup ? problemType : missingOrderProblem;
       const form = new FormData();
       form.append("orderNumber", orderNumber.trim());
-      form.append("problemType", problemType);
+      form.append("problemType", finalProblemType);
       form.append("finalized", "true");
       form.append("dock", dock);
-      form.append("reportDate", reportDate || lookup.work_date.slice(0, 10));
+      form.append("reportDate", reportDate || lookup?.work_date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
+      if (!lookup && missingOrderProblem === "Pedido no palete interno") {
+        form.append("fallbackDescendedUserName", "BOX");
+      }
       form.append("image", image);
       await api.post("/errors", form, { headers: { "Content-Type": "multipart/form-data" } });
       setMessage("Erro registrado com sucesso.");
@@ -91,6 +108,7 @@ export function ErrorCheckPage({ user }: { user: User }) {
       setDock("");
       setReportDate("");
       setProblemType("");
+      setMissingOrderProblem("");
       setImage(null);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Falha ao registrar erro.");
@@ -186,10 +204,47 @@ export function ErrorCheckPage({ user }: { user: User }) {
             </div>
           )}
 
+          {!lookup && orderNumber.trim() && (
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-slate-700">Pedido nao encontrado: selecione a ocorrencia</label>
+              <select
+                className="w-full border rounded-xl px-3 py-2"
+                value={missingOrderProblem}
+                onChange={(e) => setMissingOrderProblem(e.target.value)}
+              >
+                <option value="">Selecione...</option>
+                {MISSING_ORDER_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+
+              {missingOrderProblem === "Pedido no palete interno" && (
+                <input className="border rounded-xl px-3 py-2 bg-slate-50" value="BOX" readOnly />
+              )}
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="error-photo-missing"
+                  className="hidden"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => setImage(e.target.files?.[0] || null)}
+                />
+                <label htmlFor="error-photo-missing" className="rounded-xl border px-3 py-2 cursor-pointer whitespace-nowrap">
+                  Tirar foto
+                </label>
+                <span className="text-sm text-slate-500 truncate">{image?.name || "Nenhuma foto selecionada"}</span>
+              </div>
+            </div>
+          )}
+
           <button
             type="submit"
             className="rounded-xl bg-teal-700 text-white px-5 py-2 font-semibold disabled:opacity-50"
-            disabled={loading || !lookup || !problemType || !image}
+            disabled={loading || !orderNumber.trim() || !(lookup ? problemType : missingOrderProblem) || !image}
           >
             {loading ? "Salvando..." : "Registrar erro"}
           </button>

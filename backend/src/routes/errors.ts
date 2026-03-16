@@ -9,6 +9,7 @@ import XLSX from "xlsx";
 const createSchema = z.object({
   orderNumber: z.string().min(1),
   problemType: z.string().min(2),
+  fallbackDescendedUserName: z.string().min(1).optional(),
   finalized: z
     .union([z.string(), z.boolean()])
     .transform((v) => (typeof v === "boolean" ? v : v.toLowerCase() === "true")),
@@ -81,7 +82,7 @@ errorsRouter.post(
       reportDate,
       req.user.id,
       req.user.name,
-      descentRow?.descended_by_name || null,
+      descentRow?.descended_by_name || parsed.data.fallbackDescendedUserName || null,
       descentRow?.pen_color || null,
       descentRow?.created_at || null,
       descentRow?.id || null
