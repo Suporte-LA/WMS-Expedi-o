@@ -16,6 +16,17 @@ function isoDaysAgo(days: number) {
 
 const COLORS = ["#0f766e", "#0ea5e9", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
 
+function formatTime(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
 type ErrorDash = {
   byProblem: { problem_type: string; total: number }[];
   byConferente: { conferente_name: string; total: number }[];
@@ -128,6 +139,7 @@ export function ErrorReportsPage() {
               <th>Cor</th>
               <th>Finalizado</th>
               <th>Data</th>
+              <th>Horario</th>
               <th>Imagem</th>
             </tr>
           </thead>
@@ -141,6 +153,7 @@ export function ErrorReportsPage() {
                 <td>{item.pen_color || "-"}</td>
                 <td>{item.finalized ? "SIM" : "NAO"}</td>
                 <td>{item.report_date?.slice(0, 10)}</td>
+                <td>{formatTime(item.created_at)}</td>
                 <td>
                   {item.evidence_image_path ? (
                     <a className="underline" href={buildApiUrl(item.evidence_image_path)} target="_blank" rel="noreferrer">
