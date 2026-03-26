@@ -6,6 +6,8 @@ import { getStoredUser } from "../lib/auth";
 import { api } from "../lib/api";
 import type {
   StockActivityLog,
+  StockAllocationLog,
+  StockAllocationRecord,
   StockBaseImport,
   StockBaseProduct,
   StockDashboardResponse,
@@ -32,8 +34,8 @@ function currentTime() {
   });
 }
 
-type StockTab = "dashboard" | "localizar" | "base" | "abastecimento" | "validades";
-type ScannerTarget = "localizar" | "abastecimento" | "validades" | null;
+type StockTab = "dashboard" | "localizar" | "base" | "abastecimento" | "validades" | "alocacao";
+type ScannerTarget = "localizar" | "abastecimento" | "validades" | "alocacao" | null;
 
 type LookupPayload = {
   product: StockBaseProduct;
@@ -45,6 +47,7 @@ type LookupPayload = {
       expiry_date?: string | null;
     }>;
   };
+  allocations?: StockAllocationRecord[];
 };
 
 const EMPTY_REPLENISHMENT = {
@@ -64,6 +67,18 @@ const EMPTY_EXPIRATION = {
   expiryDate: "",
   local: "",
   street: ""
+};
+
+const EMPTY_ALLOCATION = {
+  scannedCode: "",
+  quantity: "1",
+  shed: "",
+  street: "",
+  building: "",
+  apartment: "",
+  palletPosition: "",
+  palletCode: "",
+  notes: ""
 };
 
 function sectionButtonClass(active: boolean) {
@@ -122,6 +137,18 @@ export function StockPage() {
   const [expirationTo, setExpirationTo] = useState(isoToday());
   const [expirationSearch, setExpirationSearch] = useState("");
   const [expirations, setExpirations] = useState<StockExpirationRecord[]>([]);
+  const [locatedAllocations, setLocatedAllocations] = useState<StockAllocationRecord[]>([]);
+
+  const [allocationMode, setAllocationMode] = useState<"single" | "pallet">("single");
+  const [allocationForm, setAllocationForm] = useState(EMPTY_ALLOCATION);
+  const [allocationProduct, setAllocationProduct] = useState<StockBaseProduct | null>(null);
+  const [allocationItems, setAllocationItems] = useState<Array<{ productCode: string; description: string; quantity: string }>>([]);
+  const [allocations, setAllocations] = useState<StockAllocationRecord[]>([]);
+  const [allocationLogs, setAllocationLogs] = useState<StockAllocationLog[]>([]);
+  const [allocationSearch, setAllocationSearch] = useState("");
+  const [allocationPalletSearch, setAllocationPalletSearch] = useState("");
+  const [savingAllocation, setSavingAllocation] = useState(false);
+  const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
 
   const periodLabel = useMemo(() => `${isoDaysAgo(30)} ate ${isoToday()}`, []);
 
@@ -186,8 +213,17 @@ export function StockPage() {
     setExpirations(data.items || []);
   }
 
+  async function loadAllocations() {
+    const params = new URLSearchParams({ page: "1", pageSize: "100" });
+    if (allocationSearch.trim()) params.set("search", allocationSearch.trim());
+    if (allocationPalletSearch.trim()) params.set("palletCode", allocationPalletSearch.trim());
+    const { data } = await api.get(`/stock/allocations?${params.toString()}`);
+    setAllocations(data.items || []);
+    setAllocationLogs(data.logs || []);
+  }
+
   useEffect(() => {
-    Promise.all([loadBase(), loadReplenishments(), loadExpirations(), loadDashboard()]).catch(() => {
+    Promise.all([loadBase(), loadReplenishments(), loadExpirations(), loadDashboard(), loadAllocations()]).catch(() => {
       setProducts([]);
       setSuppliers([]);
       setImports([]);
@@ -195,10 +231,12 @@ export function StockPage() {
       setExpirations([]);
       setDashboard(null);
       setActivityLogs([]);
+      setAllocations([]);
+      setAllocationLogs([]);
     });
   }, []);
 
-  async function resolveProduct(ref: string, target: "locate" | "abastecimento" | "validades") {
+  async function resolveProduct(ref: string, target: "locate" | "abastecimento" | "validades" | "alocacao") {
     const clean = ref.trim();
     if (!clean) {
       setError("Bipe ou digite um codigo valido.");
@@ -213,6 +251,7 @@ export function StockPage() {
       const expirationContext = data.expirationContext || {};
       if (target === "locate") {
         setLocatedItem(product);
+        setLocatedAllocations(data.allocations || []);
         setScanValue(clean);
       }
       if (target === "abastecimento") {
@@ -232,13 +271,21 @@ export function StockPage() {
         setExpirationProduct(product);
         setExpirationForm((prev) => ({ ...prev, scannedCode: clean }));
       }
+      if (target === "alocacao") {
+        setAllocationProduct(product);
+        setAllocationForm((prev) => ({ ...prev, scannedCode: clean }));
+      }
     } catch (err: any) {
-      if (target === "locate") setLocatedItem(null);
+      if (target === "locate") {
+        setLocatedItem(null);
+        setLocatedAllocations([]);
+      }
       if (target === "abastecimento") {
         setReplenishmentProduct(null);
         setReplenishmentContext(null);
       }
       if (target === "validades") setExpirationProduct(null);
+      if (target === "alocacao") setAllocationProduct(null);
       setError(err?.response?.data?.message || "Produto nao encontrado na base do estoque.");
     }
   }
@@ -341,6 +388,117 @@ export function StockPage() {
     }
   }
 
+  function resetAllocationForm() {
+    setAllocationForm(EMPTY_ALLOCATION);
+    setAllocationProduct(null);
+    setAllocationItems([]);
+    setEditingAllocationId(null);
+    setAllocationMode("single");
+  }
+
+  function addAllocationItem() {
+    if (!allocationProduct) {
+      setError("Selecione ou bipe um produto antes de adicionar ao pallet.");
+      return;
+    }
+    const quantity = Number(allocationForm.quantity || 0);
+    if (!quantity || quantity <= 0) {
+      setError("Quantidade da alocacao deve ser maior que zero.");
+      return;
+    }
+    setAllocationItems((prev) => [
+      ...prev,
+      {
+        productCode: allocationProduct.product_code,
+        description: allocationProduct.description,
+        quantity: String(quantity)
+      }
+    ]);
+    setAllocationForm((prev) => ({ ...prev, scannedCode: "", quantity: "1" }));
+    setAllocationProduct(null);
+  }
+
+  function editAllocationRow(row: StockAllocationRecord) {
+    setActiveTab("alocacao");
+    setEditingAllocationId(row.id);
+    setAllocationMode(row.allocation_mode);
+    setAllocationProduct({
+      id: row.id,
+      product_code: row.product_code,
+      description: row.description,
+      barcode: row.barcode,
+      supplier_code: row.supplier_code,
+      supplier_name: row.supplier_name,
+      local: null,
+      street: null,
+      created_at: row.created_at,
+      updated_at: row.updated_at
+    });
+    setAllocationItems([]);
+    setAllocationForm({
+      scannedCode: row.product_code,
+      quantity: String(Number(row.quantity || 0)),
+      shed: row.shed,
+      street: row.street,
+      building: row.building,
+      apartment: row.apartment,
+      palletPosition: row.pallet_position,
+      palletCode: row.pallet_code || "",
+      notes: row.notes || ""
+    });
+  }
+
+  async function submitAllocation(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+
+    const items =
+      allocationMode === "pallet"
+        ? allocationItems.map((item) => ({
+            productCode: item.productCode,
+            quantity: Number(item.quantity || 0)
+          }))
+        : allocationProduct
+          ? [{ productCode: allocationProduct.product_code, quantity: Number(allocationForm.quantity || 0) }]
+          : [];
+
+    if (!items.length) {
+      setError("Selecione pelo menos um produto para alocar.");
+      return;
+    }
+
+    setSavingAllocation(true);
+    try {
+      const payload = {
+        mode: allocationMode,
+        items,
+        shed: allocationForm.shed,
+        street: allocationForm.street,
+        building: allocationForm.building,
+        apartment: allocationForm.apartment,
+        palletPosition: allocationForm.palletPosition,
+        palletCode: allocationForm.palletCode || undefined,
+        notes: allocationForm.notes || undefined
+      };
+
+      if (editingAllocationId) {
+        await api.patch(`/stock/allocations/${editingAllocationId}`, payload);
+        setMessage("Alocacao atualizada.");
+      } else {
+        await api.post("/stock/allocations", payload);
+        setMessage(allocationMode === "pallet" ? "Pallet alocado." : "Produto alocado.");
+      }
+
+      resetAllocationForm();
+      await Promise.all([loadAllocations(), loadBase()]);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Falha ao salvar alocacao.");
+    } finally {
+      setSavingAllocation(false);
+    }
+  }
+
   return (
     <>
       <section className="workspace-shell">
@@ -367,6 +525,9 @@ export function StockPage() {
               </button>
               <button type="button" className={sectionButtonClass(activeTab === "validades")} onClick={() => setActiveTab("validades")}>
                 Validades
+              </button>
+              <button type="button" className={sectionButtonClass(activeTab === "alocacao")} onClick={() => setActiveTab("alocacao")}>
+                Alocacao
               </button>
             </div>
           </div>
@@ -562,13 +723,46 @@ export function StockPage() {
                     <div><span className="text-slate-500">Cod Produto:</span> {locatedItem.product_code}</div>
                     <div><span className="text-slate-500">Codigo Barras:</span> {locatedItem.barcode || "-"}</div>
                     <div><span className="text-slate-500">Fornecedor:</span> {locatedItem.supplier_name || "-"}</div>
-                    <div><span className="text-slate-500">Posicao:</span> {locatedItem.local || "-"} {locatedItem.street || ""}</div>
+                    <div>
+                      <span className="text-slate-500">Posicao atual:</span>{" "}
+                      {locatedItem.allocation_position_code || `${locatedItem.local || "-"} ${locatedItem.street || ""}`.trim()}
+                    </div>
                   </div>
                 </div>
               )}
 
+              {Boolean(locatedAllocations.length) && (
+                <div className="workspace-kpi-card overflow-auto">
+                  <h3 className="font-semibold mb-3">Alocacoes atuais do produto</h3>
+                  <table className="workspace-table">
+                    <thead>
+                      <tr>
+                        <th className="py-2">Posicao</th>
+                        <th>Pallet</th>
+                        <th>Qtd</th>
+                        <th>Modo</th>
+                        <th>Operador</th>
+                        <th>Atualizado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {locatedAllocations.map((allocation) => (
+                        <tr key={allocation.id}>
+                          <td className="py-2">{allocation.position_code} - {allocation.position_label}</td>
+                          <td>{allocation.pallet_code || "-"}</td>
+                          <td>{Number(allocation.quantity)}</td>
+                          <td>{allocation.allocation_mode === "pallet" ? "Pallet completo" : "Produto"}</td>
+                          <td>{allocation.operator_name}</td>
+                          <td>{new Date(allocation.updated_at).toLocaleString("pt-BR")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               <div className="overflow-auto">
-                <table className="w-full text-sm">
+                <table className="workspace-table">
                   <thead>
                     <tr className="text-left border-b">
                       <th className="py-2">Cod Produto</th>
@@ -578,6 +772,7 @@ export function StockPage() {
                       <th>Fornecedor</th>
                       <th>Local</th>
                       <th>Rua</th>
+                      <th>Alocacao Atual</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -590,11 +785,12 @@ export function StockPage() {
                         <td>{item.supplier_name || "-"}</td>
                         <td>{item.local || "-"}</td>
                         <td>{item.street || "-"}</td>
+                        <td>{item.allocation_position_code || "-"}</td>
                       </tr>
                     ))}
                     {!products.length && (
                       <tr>
-                        <td className="py-3 text-slate-500" colSpan={7}>Nenhum produto encontrado.</td>
+                        <td className="py-3 text-slate-500" colSpan={8}>Nenhum produto encontrado.</td>
                       </tr>
                     )}
                   </tbody>
@@ -847,6 +1043,231 @@ export function StockPage() {
               </div>
             </div>
           )}
+
+          {activeTab === "alocacao" && (
+            <div className="space-y-4">
+              <form onSubmit={submitAllocation} className="workspace-kpi-card space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <h3 className="font-semibold">{editingAllocationId ? "Editar / mover alocacao" : "Nova alocacao"}</h3>
+                  <div className="grid grid-cols-2 gap-1 rounded-xl border p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAllocationMode("single");
+                        setAllocationItems([]);
+                      }}
+                      className={`rounded-lg px-3 py-1 text-sm ${allocationMode === "single" ? "bg-slate-900 text-white" : "bg-white"}`}
+                    >
+                      Produto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAllocationMode("pallet")}
+                      className={`rounded-lg px-3 py-1 text-sm ${allocationMode === "pallet" ? "bg-slate-900 text-white" : "bg-white"}`}
+                    >
+                      Pallet completo
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-6 gap-3">
+                  <input
+                    className="border rounded-xl px-3 py-2 md:col-span-2"
+                    placeholder="Bipar produto / codigo de barras"
+                    value={allocationForm.scannedCode}
+                    onChange={(e) => setAllocationForm((prev) => ({ ...prev, scannedCode: e.target.value }))}
+                  />
+                  <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("alocacao")}>
+                    Escanear
+                  </button>
+                  <button type="button" className={softButtonClass()} onClick={() => resolveProduct(allocationForm.scannedCode, "alocacao")}>
+                    Buscar produto
+                  </button>
+                  <input
+                    className="border rounded-xl px-3 py-2"
+                    placeholder="Quantidade"
+                    value={allocationForm.quantity}
+                    onChange={(e) => setAllocationForm((prev) => ({ ...prev, quantity: e.target.value }))}
+                  />
+                  {allocationMode === "pallet" ? (
+                    <button type="button" className={softButtonClass()} onClick={addAllocationItem}>
+                      Adicionar ao pallet
+                    </button>
+                  ) : (
+                    <div className="border rounded-xl px-3 py-2 bg-slate-50 text-sm text-slate-500 flex items-center">
+                      Modo individual
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid md:grid-cols-4 gap-3 text-sm">
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={allocationProduct?.product_code || ""} placeholder="Cod Produto" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={allocationProduct?.description || ""} placeholder="Descricao" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={allocationProduct?.supplier_name || ""} placeholder="Fornecedor" />
+                </div>
+
+                {allocationMode === "pallet" && (
+                  <div className="workspace-kpi-card overflow-auto">
+                    <h4 className="font-semibold mb-2">Produtos do pallet</h4>
+                    <table className="workspace-table">
+                      <thead>
+                        <tr>
+                          <th className="py-2">Cod Produto</th>
+                          <th>Descricao</th>
+                          <th>Quantidade</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allocationItems.map((item, index) => (
+                          <tr key={`${item.productCode}-${index}`}>
+                            <td className="py-2">{item.productCode}</td>
+                            <td>{item.description}</td>
+                            <td>{item.quantity}</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="text-sm text-red-700 underline"
+                                onClick={() => setAllocationItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+                              >
+                                Remover
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {!allocationItems.length && (
+                          <tr>
+                            <td className="py-3 text-slate-500" colSpan={4}>Nenhum produto adicionado ao pallet.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-6 gap-3">
+                  <input className="border rounded-xl px-3 py-2" placeholder="Galpao" value={allocationForm.shed} onChange={(e) => setAllocationForm((prev) => ({ ...prev, shed: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Rua" value={allocationForm.street} onChange={(e) => setAllocationForm((prev) => ({ ...prev, street: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Predio" value={allocationForm.building} onChange={(e) => setAllocationForm((prev) => ({ ...prev, building: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Apartamento" value={allocationForm.apartment} onChange={(e) => setAllocationForm((prev) => ({ ...prev, apartment: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Posicao no pallet" value={allocationForm.palletPosition} onChange={(e) => setAllocationForm((prev) => ({ ...prev, palletPosition: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Codigo do pallet (opcional)" value={allocationForm.palletCode} onChange={(e) => setAllocationForm((prev) => ({ ...prev, palletCode: e.target.value }))} />
+                </div>
+
+                <textarea
+                  className="border rounded-xl px-3 py-2 w-full min-h-24"
+                  placeholder="Observacoes da alocacao"
+                  value={allocationForm.notes}
+                  onChange={(e) => setAllocationForm((prev) => ({ ...prev, notes: e.target.value }))}
+                />
+
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <span className="text-sm text-slate-500">
+                    Posicao final: {allocationForm.shed || "-"}{allocationForm.street || "-"}{allocationForm.building || "-"}{allocationForm.apartment || "-"}{allocationForm.palletPosition || "-"}
+                  </span>
+                  <div className="flex gap-2">
+                    {editingAllocationId && (
+                      <button type="button" className={softButtonClass()} onClick={resetAllocationForm}>
+                        Cancelar edicao
+                      </button>
+                    )}
+                    <button type="submit" disabled={savingAllocation} className={primaryButtonClass()}>
+                      {savingAllocation ? "Salvando..." : editingAllocationId ? "Salvar alocacao" : "Registrar alocacao"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <div className="workspace-kpi-card space-y-3">
+                <div className="grid md:grid-cols-3 gap-3">
+                  <input className="border rounded-xl px-3 py-2" placeholder="Buscar produto / posicao / fornecedor" value={allocationSearch} onChange={(e) => setAllocationSearch(e.target.value)} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Filtrar por codigo do pallet" value={allocationPalletSearch} onChange={(e) => setAllocationPalletSearch(e.target.value)} />
+                  <button type="button" className={softButtonClass()} onClick={() => loadAllocations().catch(() => setError("Falha ao carregar alocacoes."))}>
+                    Atualizar alocacoes
+                  </button>
+                </div>
+
+                <div className="overflow-auto">
+                  <table className="workspace-table">
+                    <thead>
+                      <tr>
+                        <th className="py-2">Cod Produto</th>
+                        <th>Descricao</th>
+                        <th>Qtd</th>
+                        <th>Posicao</th>
+                        <th>Pallet</th>
+                        <th>Modo</th>
+                        <th>Operador</th>
+                        <th>Atualizado</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allocations.map((row) => (
+                        <tr key={row.id}>
+                          <td className="py-2">{row.product_code}</td>
+                          <td>{row.description}</td>
+                          <td>{Number(row.quantity)}</td>
+                          <td>{row.position_code}</td>
+                          <td>{row.pallet_code || "-"}</td>
+                          <td>{row.allocation_mode === "pallet" ? "Pallet completo" : "Produto"}</td>
+                          <td>{row.operator_name}</td>
+                          <td>{new Date(row.updated_at).toLocaleString("pt-BR")}</td>
+                          <td>
+                            <button type="button" className="text-sm text-teal-700 underline" onClick={() => editAllocationRow(row)}>
+                              Editar / mover
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!allocations.length && (
+                        <tr>
+                          <td className="py-3 text-slate-500" colSpan={9}>Nenhuma alocacao registrada.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="workspace-kpi-card overflow-auto">
+                <h3 className="font-semibold mb-3">Log de alocacao</h3>
+                <table className="workspace-table">
+                  <thead>
+                    <tr>
+                      <th className="py-2">Data/Hora</th>
+                      <th>Acao</th>
+                      <th>Produto</th>
+                      <th>Qtd</th>
+                      <th>Origem</th>
+                      <th>Destino</th>
+                      <th>Pallet</th>
+                      <th>Operador</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allocationLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td className="py-2">{new Date(log.created_at).toLocaleString("pt-BR")}</td>
+                        <td>{log.action_type === "move" ? "Movimentacao" : log.action_type === "update" ? "Edicao" : "Registro"}</td>
+                        <td>{log.product_code} - {log.description}</td>
+                        <td>{Number(log.quantity)}</td>
+                        <td>{log.previous_position_code || "-"}</td>
+                        <td>{log.new_position_code}</td>
+                        <td>{log.pallet_code || "-"}</td>
+                        <td>{log.operator_name}</td>
+                      </tr>
+                    ))}
+                    {!allocationLogs.length && (
+                      <tr>
+                        <td className="py-3 text-slate-500" colSpan={8}>Nenhum log de alocacao encontrado.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {message && <p className="text-sm text-emerald-700">{message}</p>}
@@ -871,6 +1292,10 @@ export function StockPage() {
           if (target === "validades") {
             setExpirationForm((prev) => ({ ...prev, scannedCode: value }));
             resolveProduct(value, "validades");
+          }
+          if (target === "alocacao") {
+            setAllocationForm((prev) => ({ ...prev, scannedCode: value }));
+            resolveProduct(value, "alocacao");
           }
         }}
       />

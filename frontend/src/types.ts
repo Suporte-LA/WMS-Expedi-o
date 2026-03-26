@@ -154,6 +154,9 @@ export type StockBaseProduct = {
   supplier_name?: string | null;
   local?: string | null;
   street?: string | null;
+  allocation_position_code?: string | null;
+  allocation_position_label?: string | null;
+  allocation_pallet_code?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -242,4 +245,44 @@ export type StockDashboardResponse = {
     label: string;
     total_quantity: number;
   }>;
+};
+
+export type StockAllocationRecord = {
+  id: string;
+  product_code: string;
+  description: string;
+  barcode?: string | null;
+  supplier_code?: string | null;
+  supplier_name?: string | null;
+  quantity: number;
+  shed: string;
+  street: string;
+  building: string;
+  apartment: string;
+  pallet_position: string;
+  position_code: string;
+  position_label: string;
+  pallet_code?: string | null;
+  allocation_mode: "single" | "pallet";
+  operator_name: string;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StockAllocationLog = {
+  id: string;
+  allocation_id?: string | null;
+  action_type: "create" | "update" | "move";
+  product_code: string;
+  description: string;
+  quantity: number;
+  previous_position_code?: string | null;
+  previous_position_label?: string | null;
+  new_position_code: string;
+  new_position_label: string;
+  pallet_code?: string | null;
+  operator_name: string;
+  notes?: string | null;
+  created_at: string;
 };

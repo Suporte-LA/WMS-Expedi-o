@@ -50,6 +50,38 @@ const expirationSchema = z.object({
   street: z.string().min(1, "Rua obrigatoria.")
 });
 
+const allocationListSchema = z.object({
+  search: z.string().optional(),
+  palletCode: z.string().optional(),
+  mode: z.enum(["single", "pallet"]).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50)
+});
+
+const allocationSaveSchema = z.object({
+  mode: z.enum(["single", "pallet"]).default("single"),
+  items: z
+    .array(
+      z.object({
+        productCode: z.string().min(1, "Produto obrigatorio."),
+        quantity: z.coerce.number().positive("Quantidade deve ser maior que zero.")
+      })
+    )
+    .min(1, "Selecione pelo menos um produto."),
+  shed: z.string().min(1, "Galpao obrigatorio."),
+  street: z.string().min(1, "Rua obrigatoria."),
+  building: z.string().min(1, "Predio obrigatorio."),
+  apartment: z.string().min(1, "Apartamento obrigatorio."),
+  palletPosition: z.string().min(1, "Posicao no pallet obrigatoria."),
+  palletCode: z.string().optional(),
+  notes: z.string().optional()
+});
+
+const allocationUpdateSchema = allocationSaveSchema.extend({
+  mode: z.enum(["single", "pallet"]).optional(),
+  items: allocationSaveSchema.shape.items.optional()
+});
+
 const textLike = (value: unknown): string => (value == null ? "" : String(value).trim());
 
 const normalizeHeader = (header: string) =>
@@ -67,6 +99,33 @@ function pickField(row: Record<string, unknown>, aliases: string[]) {
     if (found !== undefined) return found;
   }
   return undefined;
+}
+
+function digitsOnly(value: string) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function padSegment(value: string, size: number) {
+  const digits = digitsOnly(value);
+  if (!digits) return "".padStart(size, "0");
+  return digits.padStart(size, "0").slice(-size);
+}
+
+function buildAllocationPosition(input: {
+  shed: string;
+  street: string;
+  building: string;
+  apartment: string;
+  palletPosition: string;
+}) {
+  const shed = padSegment(input.shed, 1);
+  const street = padSegment(input.street, 2);
+  const building = padSegment(input.building, 2);
+  const apartment = padSegment(input.apartment, 2);
+  const palletPosition = padSegment(input.palletPosition, 2);
+  const positionCode = `${shed}${street}${building}${apartment}${palletPosition}`;
+  const positionLabel = `Galpao ${shed} | Rua ${street} | Predio ${building} | Apartamento ${apartment} | Posicao ${palletPosition}`;
+  return { shed, street, building, apartment, palletPosition, positionCode, positionLabel };
 }
 
 type ImportedBaseProduct = {
@@ -126,6 +185,25 @@ async function findBaseProduct(ref: string) {
   );
 
   return result.rows[0] || null;
+}
+
+async function findLatestAllocationsByProductCodes(productCodes: string[]) {
+  if (!productCodes.length) return new Map<string, any>();
+  const result = await pool.query(
+    `
+      SELECT DISTINCT ON (product_code)
+        product_code,
+        position_code,
+        position_label,
+        pallet_code
+      FROM stock_allocations
+      WHERE product_code = ANY($1::text[])
+      ORDER BY product_code, updated_at DESC, created_at DESC
+    `,
+    [productCodes]
+  );
+
+  return new Map(result.rows.map((row) => [row.product_code, row]));
 }
 
 async function findExpirationContext(productCode: string) {
@@ -296,8 +374,19 @@ stockRouter.get("/base", authRequired, async (req, res) => {
     )
   ]);
 
+  const allocationMap = await findLatestAllocationsByProductCodes(items.rows.map((row) => row.product_code));
+  const mergedItems = items.rows.map((row) => {
+    const allocation = allocationMap.get(row.product_code);
+    return {
+      ...row,
+      allocation_position_code: allocation?.position_code || null,
+      allocation_position_label: allocation?.position_label || null,
+      allocation_pallet_code: allocation?.pallet_code || null
+    };
+  });
+
   return res.json({
-    items: items.rows,
+    items: mergedItems,
     suppliers: suppliers.rows.map((row) => row.supplier_name),
     page,
     pageSize,
@@ -315,10 +404,26 @@ stockRouter.get("/lookup/:value", authRequired, async (req, res) => {
   }
 
   const expirationContext = await findExpirationContext(found.product_code);
+  const allocationsRes = await pool.query(
+    `
+      SELECT *
+      FROM stock_allocations
+      WHERE product_code = $1
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 20
+    `,
+    [found.product_code]
+  );
 
   return res.json({
-    product: found,
-    expirationContext
+    product: {
+      ...found,
+      allocation_position_code: allocationsRes.rows[0]?.position_code || null,
+      allocation_position_label: allocationsRes.rows[0]?.position_label || null,
+      allocation_pallet_code: allocationsRes.rows[0]?.pallet_code || null
+    },
+    expirationContext,
+    allocations: allocationsRes.rows
   });
 });
 
@@ -825,4 +930,256 @@ stockRouter.post("/expirations", authRequired, async (req: AuthenticatedRequest,
   } finally {
     client.release();
   }
+});
+
+stockRouter.get("/allocations", authRequired, async (req, res) => {
+  const parsed = allocationListSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ message: "Query invalida." });
+
+  const { search, palletCode, mode, page, pageSize } = parsed.data;
+  const filters: string[] = [];
+  const values: unknown[] = [];
+
+  if (search?.trim()) {
+    values.push(`%${search.trim()}%`);
+    filters.push(`(
+      product_code ILIKE $${values.length}
+      OR description ILIKE $${values.length}
+      OR barcode ILIKE $${values.length}
+      OR supplier_name ILIKE $${values.length}
+      OR position_code ILIKE $${values.length}
+      OR position_label ILIKE $${values.length}
+      OR COALESCE(pallet_code, '') ILIKE $${values.length}
+    )`);
+  }
+
+  if (palletCode?.trim()) {
+    values.push(`%${palletCode.trim()}%`);
+    filters.push(`COALESCE(pallet_code, '') ILIKE $${values.length}`);
+  }
+
+  if (mode) {
+    values.push(mode);
+    filters.push(`allocation_mode = $${values.length}`);
+  }
+
+  const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
+  const offset = (page - 1) * pageSize;
+
+  const [itemsRes, logsRes] = await Promise.all([
+    pool.query(
+      `
+        SELECT *
+        FROM stock_allocations
+        ${where}
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+      `,
+      [...values, pageSize, offset]
+    ),
+    pool.query(
+      `
+        SELECT *
+        FROM stock_allocation_logs
+        ORDER BY created_at DESC
+        LIMIT 50
+      `
+    )
+  ]);
+
+  return res.json({
+    items: itemsRes.rows,
+    logs: logsRes.rows,
+    page,
+    pageSize
+  });
+});
+
+stockRouter.post("/allocations", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
+  const parsed = allocationSaveSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Payload invalido." });
+  }
+
+  const payload = parsed.data;
+  const position = buildAllocationPosition(payload);
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const createdRows: any[] = [];
+
+    for (const item of payload.items) {
+      const base = await findBaseProduct(item.productCode);
+      if (!base) {
+        throw new Error(`Produto ${item.productCode} nao encontrado na base do estoque.`);
+      }
+
+      const inserted = await client.query(
+        `
+          INSERT INTO stock_allocations (
+            product_code, description, barcode, supplier_code, supplier_name, quantity,
+            shed, street, building, apartment, pallet_position,
+            position_code, position_label, pallet_code, allocation_mode, operator_name, notes
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          RETURNING *
+        `,
+        [
+          base.product_code,
+          base.description,
+          base.barcode,
+          base.supplier_code,
+          base.supplier_name,
+          item.quantity,
+          position.shed,
+          position.street,
+          position.building,
+          position.apartment,
+          position.palletPosition,
+          position.positionCode,
+          position.positionLabel,
+          payload.palletCode?.trim() || null,
+          payload.mode,
+          req.user.name,
+          payload.notes?.trim() || null
+        ]
+      );
+
+      await client.query(
+        `
+          INSERT INTO stock_allocation_logs (
+            allocation_id, action_type, product_code, description, quantity,
+            new_position_code, new_position_label, pallet_code, operator_name, notes
+          )
+          VALUES ($1, 'create', $2, $3, $4, $5, $6, $7, $8, $9)
+        `,
+        [
+          inserted.rows[0].id,
+          base.product_code,
+          base.description,
+          item.quantity,
+          position.positionCode,
+          position.positionLabel,
+          payload.palletCode?.trim() || null,
+          req.user.name,
+          payload.notes?.trim() || null
+        ]
+      );
+
+      createdRows.push(inserted.rows[0]);
+    }
+
+    await client.query("COMMIT");
+    return res.status(201).json({ items: createdRows });
+  } catch (error: any) {
+    await client.query("ROLLBACK");
+    return res.status(400).json({ message: error?.message || "Falha ao registrar alocacao." });
+  } finally {
+    client.release();
+  }
+});
+
+stockRouter.patch("/allocations/:id", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
+  const parsed = allocationUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Payload invalido." });
+  }
+
+  const existingRes = await pool.query(`SELECT * FROM stock_allocations WHERE id = $1 LIMIT 1`, [req.params.id]);
+  const existing = existingRes.rows[0];
+  if (!existing) return res.status(404).json({ message: "Alocacao nao encontrada." });
+
+  const payload = parsed.data;
+  const position = buildAllocationPosition({
+    shed: payload.shed,
+    street: payload.street,
+    building: payload.building,
+    apartment: payload.apartment,
+    palletPosition: payload.palletPosition
+  });
+  const firstItem = payload.items?.[0];
+  const quantity = firstItem?.quantity ?? Number(existing.quantity);
+  const productCode = firstItem?.productCode || existing.product_code;
+  const base = await findBaseProduct(productCode);
+  if (!base) return res.status(404).json({ message: "Produto nao encontrado na base do estoque." });
+
+  const actionType =
+    existing.position_code !== position.positionCode || existing.position_label !== position.positionLabel ? "move" : "update";
+
+  const updated = await pool.query(
+    `
+      UPDATE stock_allocations
+      SET
+        product_code = $2,
+        description = $3,
+        barcode = $4,
+        supplier_code = $5,
+        supplier_name = $6,
+        quantity = $7,
+        shed = $8,
+        street = $9,
+        building = $10,
+        apartment = $11,
+        pallet_position = $12,
+        position_code = $13,
+        position_label = $14,
+        pallet_code = $15,
+        allocation_mode = $16,
+        operator_name = $17,
+        notes = $18,
+        updated_at = now()
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      req.params.id,
+      base.product_code,
+      base.description,
+      base.barcode,
+      base.supplier_code,
+      base.supplier_name,
+      quantity,
+      position.shed,
+      position.street,
+      position.building,
+      position.apartment,
+      position.palletPosition,
+      position.positionCode,
+      position.positionLabel,
+      payload.palletCode?.trim() || existing.pallet_code || null,
+      payload.mode || existing.allocation_mode,
+      req.user.name,
+      payload.notes?.trim() || existing.notes || null
+    ]
+  );
+
+  await pool.query(
+    `
+      INSERT INTO stock_allocation_logs (
+        allocation_id, action_type, product_code, description, quantity,
+        previous_position_code, previous_position_label,
+        new_position_code, new_position_label, pallet_code, operator_name, notes
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `,
+    [
+      req.params.id,
+      actionType,
+      base.product_code,
+      base.description,
+      quantity,
+      existing.position_code,
+      existing.position_label,
+      position.positionCode,
+      position.positionLabel,
+      payload.palletCode?.trim() || existing.pallet_code || null,
+      req.user.name,
+      payload.notes?.trim() || existing.notes || null
+    ]
+  );
+
+  return res.json(updated.rows[0]);
 });
