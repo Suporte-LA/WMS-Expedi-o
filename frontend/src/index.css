@@ -30,3 +30,74 @@ body {
 .app-header {
   forced-color-adjust: none;
 }
+
+@layer components {
+  .workspace-shell {
+    @apply space-y-4;
+  }
+
+  .workspace-panel {
+    @apply rounded-2xl bg-white p-4 shadow-sm;
+  }
+
+  .workspace-panel-header {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+
+  .workspace-title {
+    @apply text-lg font-semibold text-slate-900;
+  }
+
+  .workspace-copy {
+    @apply text-sm text-slate-600;
+  }
+
+  .workspace-nav {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .workspace-nav-button {
+    @apply rounded-lg px-3 py-2 text-sm font-medium text-white transition-colors;
+  }
+
+  .workspace-nav-button-active {
+    @apply bg-teal-700;
+  }
+
+  .workspace-nav-button-idle {
+    @apply bg-slate-800 hover:bg-slate-700;
+  }
+
+  .workspace-soft-button {
+    @apply rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900;
+  }
+
+  .workspace-primary-button {
+    @apply rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50;
+  }
+
+  .workspace-kpi-card {
+    @apply rounded-xl border border-slate-200 p-3;
+  }
+
+  .workspace-table-card {
+    @apply rounded-2xl bg-white p-4 shadow-sm overflow-auto;
+  }
+
+  .workspace-table {
+    @apply w-full text-sm;
+  }
+
+  .workspace-table thead tr {
+    @apply border-b bg-slate-50 text-left;
+  }
+
+  .workspace-table tbody tr {
+    @apply border-b;
+  }
+
+  .workspace-table th,
+  .workspace-table td {
+    @apply align-top;
+  }
+}

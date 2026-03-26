@@ -34,6 +34,18 @@ function sortOperation(a: string, b: string) {
   return pa.raw.localeCompare(pb.raw, "pt-BR");
 }
 
+function sectionButtonClass(active: boolean) {
+  return `workspace-nav-button ${active ? "workspace-nav-button-active" : "workspace-nav-button-idle"}`;
+}
+
+function softButtonClass(extra = "") {
+  return `workspace-soft-button ${extra}`.trim();
+}
+
+function primaryButtonClass(extra = "") {
+  return `workspace-primary-button ${extra}`.trim();
+}
+
 export function TiPage() {
   const [activeSection, setActiveSection] = useState<TiSection>("registro");
   const [baseFile, setBaseFile] = useState<File | null>(null);
@@ -319,32 +331,32 @@ export function TiPage() {
   }, [name, operation, catalog]);
 
   return (
-    <section className="space-y-4">
-      <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
+    <section className="workspace-shell">
+      <div className="workspace-panel space-y-3">
+        <div className="workspace-panel-header">
           <div>
-            <h2 className="font-semibold">TI</h2>
-            <p className="text-sm text-slate-600">Central de TI para registrar e acompanhar aparelhos de vendas.</p>
+            <h2 className="workspace-title">TI</h2>
+            <p className="workspace-copy">Central de TI para registrar e acompanhar aparelhos de vendas.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="workspace-nav">
             <button
               type="button"
               onClick={() => setActiveSection("registro")}
-              className={`rounded-lg px-3 py-1 text-sm ${activeSection === "registro" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
+              className={sectionButtonClass(activeSection === "registro")}
             >
               Registro de aparelho de vendas
             </button>
             <button
               type="button"
               onClick={() => setActiveSection("controle")}
-              className={`rounded-lg px-3 py-1 text-sm ${activeSection === "controle" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
+              className={sectionButtonClass(activeSection === "controle")}
             >
               Controle de aparelhos de vendas
             </button>
             <button
               type="button"
               onClick={() => setActiveSection("base")}
-              className={`rounded-lg px-3 py-1 text-sm ${activeSection === "base" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
+              className={sectionButtonClass(activeSection === "base")}
             >
               Base de dados
             </button>
@@ -353,7 +365,7 @@ export function TiPage() {
       </div>
 
       {activeSection === "registro" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm min-h-[200px]">
+        <div className="workspace-panel min-h-[200px]">
           <h3 className="font-semibold">Registro de aparelho de vendas</h3>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
             <select className="border rounded-xl px-3 py-2" value={maintenanceItem} onChange={(e) => setMaintenanceItem(e.target.value)}>
@@ -432,7 +444,7 @@ export function TiPage() {
             <button
               type="button"
               onClick={submitRecord}
-              className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold"
+              className={primaryButtonClass()}
               disabled={submitting}
             >
               {submitting ? "Salvando..." : "Registrar"}
@@ -440,7 +452,7 @@ export function TiPage() {
             {message && <span className="text-sm text-emerald-700">{message}</span>}
             {error && <span className="text-sm text-red-700">{error}</span>}
           </div>
-          <div className="mt-4 rounded-xl border p-3 overflow-auto">
+            <div className="mt-4 workspace-kpi-card overflow-auto">
             <h4 className="font-semibold mb-2">Ultimos informes (corrigir/excluir)</h4>
             <table className="w-full text-sm min-w-[900px]">
               <thead>
@@ -492,7 +504,7 @@ export function TiPage() {
       )}
 
       {activeSection === "base" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm min-h-[200px] space-y-3">
+        <div className="workspace-panel min-h-[200px] space-y-3">
           <h3 className="font-semibold">Base de dados</h3>
           <p className="text-sm text-slate-600">Importe a base para preencher nomes e modelos nos formulários.</p>
           <div className="flex flex-wrap items-center gap-2">
@@ -503,11 +515,11 @@ export function TiPage() {
               className="hidden"
               onChange={(e) => setBaseFile(e.target.files?.[0] || null)}
             />
-            <label htmlFor="ti-base-upload" className="rounded-xl border px-3 py-2 cursor-pointer">
+            <label htmlFor="ti-base-upload" className={`${softButtonClass()} cursor-pointer`}>
               Escolher base
             </label>
             <span className="text-sm text-slate-500">{baseFile?.name || "Nenhum arquivo selecionado"}</span>
-            <button type="button" onClick={importBase} className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold" disabled={importing}>
+            <button type="button" onClick={importBase} className={primaryButtonClass()} disabled={importing}>
               {importing ? "Importando..." : "Importar Base"}
             </button>
           </div>
@@ -519,11 +531,11 @@ export function TiPage() {
               className="hidden"
               onChange={(e) => setHistoryFile(e.target.files?.[0] || null)}
             />
-            <label htmlFor="ti-history-upload" className="rounded-xl border px-3 py-2 cursor-pointer">
+            <label htmlFor="ti-history-upload" className={`${softButtonClass()} cursor-pointer`}>
               Escolher historico
             </label>
             <span className="text-sm text-slate-500">{historyFile?.name || "Nenhum historico selecionado"}</span>
-            <button type="button" onClick={importHistory} className="rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold" disabled={importingHistory}>
+            <button type="button" onClick={importHistory} className={sectionButtonClass(false)} disabled={importingHistory}>
               {importingHistory ? "Importando..." : "Importar Historico"}
             </button>
           </div>
@@ -572,12 +584,7 @@ export function TiPage() {
                         />
                       </td>
                       <td className="p-2">
-                        <button
-                          type="button"
-                          onClick={() => saveCatalogRow(row.id)}
-                          className="rounded-lg bg-teal-700 text-white px-3 py-1 font-semibold w-full"
-                          disabled={savingCatalogId === row.id}
-                        >
+                        <button type="button" onClick={() => saveCatalogRow(row.id)} className={`${primaryButtonClass("w-full rounded-lg px-3 py-1")}`} disabled={savingCatalogId === row.id}>
                           {savingCatalogId === row.id ? "Salvando..." : "Salvar"}
                         </button>
                       </td>
@@ -596,7 +603,7 @@ export function TiPage() {
       )}
 
       {activeSection === "controle" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm min-h-[200px]">
+        <div className="workspace-panel min-h-[200px]">
           <h3 className="font-semibold">Controle de aparelhos de vendas</h3>
           <div className="mt-3 grid grid-cols-1 md:grid-cols-6 gap-3">
             <input className="border rounded-xl px-3 py-2" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -604,7 +611,7 @@ export function TiPage() {
             <input className="border rounded-xl px-3 py-2" placeholder="Nome" value={filterName} onChange={(e) => setFilterName(e.target.value)} />
             <input className="border rounded-xl px-3 py-2" placeholder="Operacao" value={filterOperation} onChange={(e) => setFilterOperation(e.target.value)} />
             <input className="border rounded-xl px-3 py-2" placeholder="Manutencao" value={filterItem} onChange={(e) => setFilterItem(e.target.value)} />
-            <button type="button" onClick={loadControl} className="rounded-xl border px-3 py-2">
+            <button type="button" onClick={loadControl} className={softButtonClass()}>
               {controlLoading ? "..." : "Atualizar"}
             </button>
           </div>

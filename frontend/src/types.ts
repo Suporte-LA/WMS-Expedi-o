@@ -144,3 +144,102 @@ export type TiStockMovement = {
   description?: string | null;
   category?: string | null;
 };
+
+export type StockBaseProduct = {
+  id: string;
+  product_code: string;
+  description: string;
+  barcode?: string | null;
+  supplier_code?: string | null;
+  supplier_name?: string | null;
+  local?: string | null;
+  street?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StockBaseImport = {
+  id: string;
+  filename: string;
+  processed_rows: number;
+  inserted_rows: number;
+  updated_rows: number;
+  imported_by_name?: string | null;
+  created_at: string;
+};
+
+export type StockReplenishmentRecord = {
+  id: string;
+  work_date: string;
+  entry_time?: string | null;
+  product_code?: string | null;
+  description?: string | null;
+  barcode?: string | null;
+  supplier_code?: string | null;
+  supplier_name?: string | null;
+  quantity_1?: number | null;
+  expiry_1?: string | null;
+  quantity_2?: number | null;
+  expiry_2?: string | null;
+  user_name?: string | null;
+  local?: string | null;
+  street?: string | null;
+  created_at: string;
+};
+
+export type StockExpirationRecord = {
+  id: string;
+  work_date: string;
+  product_code?: string | null;
+  description?: string | null;
+  barcode?: string | null;
+  supplier_code?: string | null;
+  supplier_name?: string | null;
+  quantity?: number | null;
+  expiry_date?: string | null;
+  user_name?: string | null;
+  local?: string | null;
+  street?: string | null;
+  created_at: string;
+};
+
+export type StockActivityLog = {
+  id: string;
+  work_date: string;
+  movement_type: "entry" | "exit";
+  activity_type: "validade" | "abastecimento";
+  product_code: string;
+  description: string;
+  barcode?: string | null;
+  supplier_code?: string | null;
+  supplier_name?: string | null;
+  local?: string | null;
+  street?: string | null;
+  expiry_date?: string | null;
+  quantity: number;
+  operator_name?: string | null;
+  created_at: string;
+};
+
+export type StockDashboardResponse = {
+  cards: {
+    total_entries: number;
+    total_exits: number;
+    total_skus: number;
+    total_operators: number;
+  };
+  trend: Array<{
+    work_date: string;
+    entries: number;
+    exits: number;
+  }>;
+  byOperator: Array<{
+    operator_name: string;
+    total_quantity: number;
+    total_activities: number;
+  }>;
+  byActivity: Array<{
+    label: string;
+    total_quantity: number;
+  }>;
+};

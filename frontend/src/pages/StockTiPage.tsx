@@ -59,6 +59,18 @@ function labelOf(item: { description?: string | null; category?: string | null; 
   return item.description || item.category || item.sku;
 }
 
+function sectionButtonClass(active: boolean) {
+  return `workspace-nav-button ${active ? "workspace-nav-button-active" : "workspace-nav-button-idle"}`;
+}
+
+function softButtonClass(extra = "") {
+  return `workspace-soft-button ${extra}`.trim();
+}
+
+function primaryButtonClass(extra = "") {
+  return `workspace-primary-button ${extra}`.trim();
+}
+
 export function StockTiPage({ user }: { user: User }) {
   const [productRef, setProductRef] = useState("");
   const [selected, setSelected] = useState<TiStockProduct | null>(null);
@@ -253,32 +265,36 @@ export function StockTiPage({ user }: { user: User }) {
 
   return (
     <>
-      <section className="space-y-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm space-y-2">
-          <h2 className="font-semibold">Estoque TI</h2>
-          <p className="text-sm text-slate-600">
-            Entrada/Devolucao simples e Saida com formulario completo: ID, Data, Cod, Guia, Saida, Movimentacao e Destino final.
-          </p>
-          <div className="flex gap-2 pt-1">
+      <section className="workspace-shell">
+        <div className="workspace-panel space-y-3">
+          <div className="workspace-panel-header">
+            <div>
+              <h2 className="workspace-title">Estoque TI</h2>
+              <p className="workspace-copy">
+                Entrada/Devolucao simples e Saida com formulario completo: ID, Data, Cod, Guia, Saida, Movimentacao e Destino final.
+              </p>
+            </div>
+            <div className="workspace-nav">
             <button
               type="button"
               onClick={() => setActiveView("movement")}
-              className={`rounded-lg px-3 py-1 text-sm ${activeView === "movement" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
+              className={sectionButtonClass(activeView === "movement")}
             >
               Movimentacao
             </button>
             <button
               type="button"
               onClick={() => setActiveView("report")}
-              className={`rounded-lg px-3 py-1 text-sm ${activeView === "report" ? "bg-teal-700 text-white" : "bg-slate-800 text-white hover:bg-slate-700"}`}
+              className={sectionButtonClass(activeView === "report")}
             >
               Relatorio de Movimentacao
             </button>
           </div>
         </div>
+        </div>
 
         {activeView === "movement" && (
-        <form onSubmit={onImportBase} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+        <form onSubmit={onImportBase} className="workspace-panel space-y-3">
           <h3 className="font-semibold">Configuracao da Base (QR/SKU)</h3>
           <p className="text-sm text-slate-600">
             Envie a planilha com colunas: SKU, Cod, Categoria, Guias, Entrada, Saida, Devolucao, Estoque Final, Estoque Minimo.
@@ -291,11 +307,11 @@ export function StockTiPage({ user }: { user: User }) {
               accept=".xlsx,.xls,.csv"
               onChange={(e) => setBaseFile(e.target.files?.[0] || null)}
             />
-            <label htmlFor="ti-base" className="rounded-xl border px-3 py-2 cursor-pointer">
+            <label htmlFor="ti-base" className={`${softButtonClass()} cursor-pointer`}>
               Escolher base TI
             </label>
             <span className="text-sm text-slate-500">{baseFile?.name || "Nenhum arquivo selecionado"}</span>
-            <button type="submit" disabled={importing} className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold disabled:opacity-50">
+            <button type="submit" disabled={importing} className={primaryButtonClass()}>
               {importing ? "Importando..." : "Importar Base TI"}
             </button>
           </div>
@@ -303,7 +319,7 @@ export function StockTiPage({ user }: { user: User }) {
         )}
 
         {activeView === "movement" && (
-        <form onSubmit={onRegisterMovement} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+        <form onSubmit={onRegisterMovement} className="workspace-panel space-y-3">
           <h3 className="font-semibold">Movimentacao de Materiais</h3>
           <div className="grid md:grid-cols-12 gap-3">
             <div className="md:col-span-4 flex gap-2">
@@ -314,7 +330,7 @@ export function StockTiPage({ user }: { user: User }) {
                 onChange={(e) => setProductRef(e.target.value)}
                 onBlur={() => lookupProduct(productRef)}
               />
-              <button type="button" className="rounded-xl border px-3" onClick={() => setScannerOpen(true)}>
+              <button type="button" className={softButtonClass()} onClick={() => setScannerOpen(true)}>
                 Escanear
               </button>
             </div>
@@ -345,7 +361,7 @@ export function StockTiPage({ user }: { user: User }) {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
-            <button type="submit" disabled={savingMovement} className="rounded-xl bg-slate-900 text-white px-3 py-2 font-semibold md:col-span-1 disabled:opacity-50">
+            <button type="submit" disabled={savingMovement} className={`rounded-xl bg-slate-900 text-white px-3 py-2 font-semibold md:col-span-1 disabled:opacity-50`}>
               {savingMovement ? "..." : "Lancar"}
             </button>
           </div>
@@ -382,7 +398,7 @@ export function StockTiPage({ user }: { user: User }) {
         {error && <p className="text-sm text-red-700">{error}</p>}
 
         {activeView === "report" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="workspace-panel space-y-3">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h3 className="font-semibold">Relatorio Estoque TI</h3>
             <div className="flex items-center gap-2">
@@ -400,17 +416,17 @@ export function StockTiPage({ user }: { user: User }) {
                 value={reportMovementSearch}
                 onChange={(e) => setReportMovementSearch(e.target.value)}
               />
-              <button type="button" className="rounded-lg border px-3 py-1 text-sm" onClick={loadReport}>Atualizar</button>
+              <button type="button" className={softButtonClass("rounded-lg px-3 py-1")} onClick={loadReport}>Atualizar</button>
             </div>
           </div>
 
           {report && (
             <>
               <div className="grid md:grid-cols-4 gap-3">
-                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Total Entrada</p><p className="text-2xl font-bold">{Number(report.totals.total_entry || 0)}</p></article>
-                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Total Saida</p><p className="text-2xl font-bold">{Number(report.totals.total_exit || 0)}</p></article>
-                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Total Devolucao</p><p className="text-2xl font-bold">{Number(report.totals.total_return || 0)}</p></article>
-                <article className="rounded-xl border p-3"><p className="text-xs text-slate-500">Saldo Movimentado</p><p className="text-2xl font-bold">{Number(report.totals.total_entry || 0) + Number(report.totals.total_return || 0) - Number(report.totals.total_exit || 0)}</p></article>
+                <article className="workspace-kpi-card"><p className="text-xs text-slate-500">Total Entrada</p><p className="text-2xl font-bold">{Number(report.totals.total_entry || 0)}</p></article>
+                <article className="workspace-kpi-card"><p className="text-xs text-slate-500">Total Saida</p><p className="text-2xl font-bold">{Number(report.totals.total_exit || 0)}</p></article>
+                <article className="workspace-kpi-card"><p className="text-xs text-slate-500">Total Devolucao</p><p className="text-2xl font-bold">{Number(report.totals.total_return || 0)}</p></article>
+                <article className="workspace-kpi-card"><p className="text-xs text-slate-500">Saldo Movimentado</p><p className="text-2xl font-bold">{Number(report.totals.total_entry || 0) + Number(report.totals.total_return || 0) - Number(report.totals.total_exit || 0)}</p></article>
               </div>
 
               <div className="grid md:grid-cols-2 gap-3">
@@ -576,10 +592,10 @@ export function StockTiPage({ user }: { user: User }) {
         )}
 
         {activeView === "movement" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
+        <div className="workspace-table-card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Avisos de Estoque Baixo</h3>
-            <button type="button" className="rounded-lg border px-3 py-1 text-sm" onClick={loadData}>
+            <button type="button" className={softButtonClass("rounded-lg px-3 py-1")} onClick={loadData}>
               Atualizar
             </button>
           </div>
@@ -620,7 +636,7 @@ export function StockTiPage({ user }: { user: User }) {
         )}
 
         {activeView === "movement" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
+        <div className="workspace-table-card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">Base de Produtos TI</h3>
             <input
@@ -661,7 +677,7 @@ export function StockTiPage({ user }: { user: User }) {
         )}
 
         {activeView === "movement" && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm overflow-auto">
+        <div className="workspace-table-card">
           <h3 className="font-semibold mb-3">Ultimas Movimentacoes</h3>
           <table className="w-full text-sm">
             <thead>
