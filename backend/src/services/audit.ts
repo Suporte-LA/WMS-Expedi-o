@@ -10,7 +10,8 @@ type AuditAction =
   | "DESCENT_CREATE"
   | "ERROR_CREATE"
   | "SETTINGS_ACCESS_UPDATE"
-  | "MONTAGEM_SP_CREATE";
+  | "MONTAGEM_SP_CREATE"
+  | "MONTAGEM_SP_UPDATE";
 
 export async function writeAuditLog(params: {
   userId?: string | null;

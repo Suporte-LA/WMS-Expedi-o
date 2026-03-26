@@ -35,6 +35,23 @@ const createSchema = z.object({
   externalRef: z.string().optional()
 });
 
+const updateSchema = z.object({
+  workDate: z.string().min(1).optional(),
+  startTime: z.string().optional().nullable(),
+  endTime: z.string().optional().nullable(),
+  stopsCount: z.coerce.number().int().min(0).optional(),
+  pauseMinutes: z.coerce.number().int().min(0).optional(),
+  pauseReason: z.string().optional().nullable(),
+  palletsCount: z.coerce.number().int().min(0).optional().nullable(),
+  loadValue: z.coerce.number().min(0).optional().nullable(),
+  volume: z.coerce.number().int().min(0).optional().nullable(),
+  weightKg: z.coerce.number().min(0).optional().nullable(),
+  isoporQty: z.coerce.number().int().min(0).optional().nullable(),
+  hasHelper: boolLike,
+  helperName: z.string().optional().nullable(),
+  notes: z.string().optional().nullable()
+});
+
 const listSchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
@@ -60,7 +77,7 @@ function toMinutes(time: string | undefined | null): number | null {
   return hh * 60 + mm;
 }
 
-function computeDuration(startTime?: string, endTime?: string, pauseMinutes = 0): number | null {
+function computeDuration(startTime?: string | null, endTime?: string | null, pauseMinutes = 0): number | null {
   const start = toMinutes(startTime);
   const end = toMinutes(endTime);
   if (start === null || end === null) return null;
@@ -263,4 +280,80 @@ montagemSpRouter.get("/", authRequired, requireScreenAccess("montagem-sp"), asyn
     page,
     pageSize
   });
+});
+
+montagemSpRouter.patch("/:id", authRequired, requireScreenAccess("montagem-sp"), async (req: AuthenticatedRequest, res) => {
+  const params = z.object({ id: z.string().uuid() }).safeParse(req.params);
+  if (!params.success) return res.status(400).json({ message: "Id invalido." });
+
+  const parsed = updateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Payload invalido." });
+  if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
+
+  const existing = await pool.query(`SELECT * FROM montagem_sp WHERE id = $1`, [params.data.id]);
+  const row = existing.rows[0];
+  if (!row) return res.status(404).json({ message: "Registro nao encontrado." });
+
+  const data = parsed.data;
+  const hasHelper = data.hasHelper ?? row.has_helper;
+  const helperName = hasHelper ? (data.helperName ?? row.helper_name ?? null) : null;
+  if (hasHelper && !String(helperName || "").trim()) {
+    return res.status(400).json({ message: "Selecione o ajudante." });
+  }
+
+  const workDate = data.workDate ? normalizeDate(data.workDate) : row.work_date?.toISOString?.().slice(0, 10) ?? row.work_date;
+  const startTime = data.startTime !== undefined ? data.startTime || null : row.start_time;
+  const endTime = data.endTime !== undefined ? data.endTime || null : row.end_time;
+  const pauseMinutes = data.pauseMinutes ?? row.pause_minutes ?? 0;
+  const durationMinutes = computeDuration(startTime, endTime, pauseMinutes);
+
+  const result = await pool.query(
+    `
+      UPDATE montagem_sp
+      SET
+        work_date = $2::date,
+        start_time = $3::time,
+        end_time = $4::time,
+        duration_minutes = $5,
+        stops_count = $6,
+        pause_minutes = $7,
+        pause_reason = $8,
+        pallets_count = $9,
+        load_value = $10,
+        volume = $11,
+        weight_kg = $12,
+        isopor_qty = $13,
+        has_helper = $14,
+        helper_name = $15,
+        notes = $16
+      WHERE id = $1
+      RETURNING *
+    `,
+    [
+      params.data.id,
+      workDate,
+      startTime,
+      endTime,
+      durationMinutes,
+      data.stopsCount ?? row.stops_count ?? 0,
+      pauseMinutes,
+      data.pauseReason !== undefined ? data.pauseReason || null : row.pause_reason,
+      data.palletsCount !== undefined ? data.palletsCount : row.pallets_count,
+      data.loadValue !== undefined ? data.loadValue : row.load_value,
+      data.volume !== undefined ? data.volume : row.volume,
+      data.weightKg !== undefined ? data.weightKg : row.weight_kg,
+      data.isoporQty !== undefined ? data.isoporQty : row.isopor_qty,
+      hasHelper,
+      helperName,
+      data.notes !== undefined ? data.notes || null : row.notes
+    ]
+  );
+
+  await writeAuditLog({
+    userId: req.user.id,
+    action: "MONTAGEM_SP_UPDATE",
+    meta: { id: params.data.id }
+  });
+
+  return res.json(result.rows[0]);
 });
