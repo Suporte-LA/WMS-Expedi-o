@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
@@ -419,7 +419,7 @@ export function StockPage() {
       await loadBase();
     } catch (err: any) {
       if (err?.message?.includes("ERR_UPLOAD_FILE_CHANGED")) {
-        setError("O arquivo foi alterado depois da sele??o. Escolha a planilha novamente e envie.");
+        setError("O arquivo foi alterado depois da seleção. Escolha a planilha novamente e envie.");
       } else {
         setError(err?.response?.data?.message || "Falha ao importar base do estoque.");
       }
@@ -740,9 +740,9 @@ export function StockPage() {
                         <th>Tipo</th>
                         <th>Atividade</th>
                         <th>Produto</th>
-                        <th>Descri??o</th>
+                        <th>Descrição</th>
                         <th>SKU</th>
-                        <th>Posi??o</th>
+                        <th>Posição</th>
                         <th>Palete</th>
                         <th>Validade</th>
                         <th>Quantidade</th>
@@ -753,7 +753,7 @@ export function StockPage() {
                       {activityLogs.map((item) => (
                         <tr key={item.id} className="border-b">
                           <td className="py-2">{item.work_date ? new Date(`${item.work_date}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
-                  <td>{item.movement_type === "entry" ? "Entrada" : "Saída"}</td>
+                          <td>{item.movement_type === "entry" ? "Entrada" : "Saída"}</td>
                           <td>{item.activity_type === "validade" ? "Validade" : "Abastecimento"}</td>
                           <td>{item.product_code}</td>
                           <td>{item.description}</td>
@@ -848,7 +848,7 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr>
-                        <th className="py-2">Posi??o</th>
+                        <th className="py-2">Posição</th>
                         <th>Palete</th>
                         <th>Qtd</th>
                         <th>Modo</th>
@@ -876,12 +876,12 @@ export function StockPage() {
                 <table className="workspace-table">
                   <thead>
                     <tr className="text-left border-b">
-                      <th className="py-2">C?d. produto</th>
-                      <th>Descri??o</th>
-                      <th>C?digo de barras</th>
+                      <th className="py-2">Cód. produto</th>
+                      <th>Descrição</th>
+                      <th>Código de barras</th>
                       <th>Cod Forn.</th>
                       <th>Fornecedor</th>
-                      <th>Posi??o</th>
+                      <th>Posição</th>
                       <th>Palete</th>
                     </tr>
                   </thead>
@@ -1078,18 +1078,18 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr className="text-left border-b">
-                        <th className="py-2">Descri??o</th>
+                        <th className="py-2">Descrição</th>
                         <th>Data</th>
                         <th>Hora</th>
-                        <th>C?d. produto</th>
-                        <th>C?digo de barras</th>
-                        <th>Posi??o</th>
+                        <th>Cód. produto</th>
+                        <th>Código de barras</th>
+                        <th>Posição</th>
                         <th>Palete</th>
                         <th>Qtd 1</th>
                         <th>Validade 1</th>
                         <th>Qtd 2</th>
                         <th>Validade 2</th>
-                        <th>Usu?rio</th>
+                        <th>Usuário</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1111,7 +1111,7 @@ export function StockPage() {
                       ))}
                       {!replenishments.length && (
                         <tr>
-                          <td className="py-3 text-slate-500" colSpan={12}>Nenhum abastecimento registrado no per?odo.</td>
+                          <td className="py-3 text-slate-500" colSpan={12}>Nenhum abastecimento registrado no período.</td>
                         </tr>
                       )}
                     </tbody>
@@ -1171,15 +1171,15 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr className="text-left border-b">
-                        <th className="py-2">Descri??o</th>
+                        <th className="py-2">Descrição</th>
                         <th>Data</th>
-                        <th>C?d. produto</th>
-                        <th>C?digo de barras</th>
-                        <th>Posi??o</th>
+                        <th>Cód. produto</th>
+                        <th>Código de barras</th>
+                        <th>Posição</th>
                         <th>Palete</th>
                         <th>Quantidade</th>
                         <th>Validade</th>
-                        <th>Usu?rio</th>
+                        <th>Usuário</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1279,8 +1279,8 @@ export function StockPage() {
                     <table className="workspace-table">
                       <thead>
                         <tr>
-                          <th className="py-2">C?d. produto</th>
-                          <th>Descri??o</th>
+                          <th className="py-2">Cód. produto</th>
+                          <th>Descrição</th>
                           <th>Quantidade</th>
                           <th></th>
                         </tr>
@@ -1358,10 +1358,10 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr>
-                        <th className="py-2">C?d. produto</th>
-                        <th>Descri??o</th>
+                        <th className="py-2">Cód. produto</th>
+                        <th>Descrição</th>
                         <th>Qtd</th>
-                        <th>Posi??o</th>
+                        <th>Posição</th>
                         <th>Palete</th>
                         <th>Modo</th>
                         <th>Operador</th>
