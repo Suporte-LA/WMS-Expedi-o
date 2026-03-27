@@ -105,6 +105,16 @@ function digitsOnly(value: string) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function looksLikeBarcode(value: string | null) {
+  const digits = digitsOnly(value || "");
+  return digits.length >= 8;
+}
+
+function looksLikeShortCode(value: string | null) {
+  const digits = digitsOnly(value || "");
+  return digits.length > 0 && digits.length <= 6;
+}
+
 function padSegment(value: string, size: number) {
   const digits = digitsOnly(value);
   if (!digits) return "".padStart(size, "0");
@@ -147,17 +157,28 @@ function parseStockBase(buffer: Buffer): ImportedBaseProduct[] {
     .map((row) => {
       const productCode = textLike(pickField(row, ["Codigo Produto", "Cod Produto", "Produto"]));
       const description = textLike(pickField(row, ["Descricao", "Descricao Produto", "Produto Descricao"]));
-      const barcode = textLike(pickField(row, ["Codigo Barras", "Cod Barras", "Codigo de Barras", "EAN"]));
-      const supplierCode = textLike(pickField(row, ["Cod Forn", "Cod Forn.", "Cod Fornecedor"]));
+      const rawBarcode = textLike(pickField(row, ["Codigo Barras", "Cod Barras", "Codigo de Barras", "EAN"]));
+      const rawSupplierCode = textLike(pickField(row, ["Cod Forn", "Cod Forn.", "Cod Fornecedor"]));
       const supplierName = textLike(pickField(row, ["Fornecedor", "Descricao Fornecedor"]));
       const local = textLike(pickField(row, ["Local"]));
       const street = textLike(pickField(row, ["Rua", "Posicao", "Posicao Produto"]));
 
+      let barcode = rawBarcode || null;
+      let supplierCode = rawSupplierCode || null;
+
+      // Algumas planilhas do estoque vêm com os valores de "Código Barras" e
+      // "Cód Forn." invertidos no conteúdo. Quando detectamos um EAN longo no
+      // campo do fornecedor e um código curto no campo de barras, corrigimos.
+      if (looksLikeShortCode(rawBarcode) && looksLikeBarcode(rawSupplierCode)) {
+        barcode = rawSupplierCode;
+        supplierCode = rawBarcode || null;
+      }
+
       return {
         productCode,
         description,
-        barcode: barcode || null,
-        supplierCode: supplierCode || null,
+        barcode,
+        supplierCode,
         supplierName: supplierName || null,
         local: local || null,
         street: street || null
