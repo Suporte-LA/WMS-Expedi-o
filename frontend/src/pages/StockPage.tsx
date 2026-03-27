@@ -50,6 +50,22 @@ type LookupPayload = {
   allocations?: StockAllocationRecord[];
 };
 
+type PositionFields = {
+  shed: string;
+  street: string;
+  building: string;
+  apartment: string;
+  palletPosition: string;
+};
+
+const EMPTY_POSITION_FIELDS: PositionFields = {
+  shed: "",
+  street: "",
+  building: "",
+  apartment: "",
+  palletPosition: ""
+};
+
 const EMPTY_REPLENISHMENT = {
   scannedCode: "",
   workDate: isoToday(),
@@ -65,8 +81,7 @@ const EMPTY_EXPIRATION = {
   workDate: isoToday(),
   quantity: "",
   expiryDate: "",
-  local: "",
-  street: ""
+  ...EMPTY_POSITION_FIELDS
 };
 
 const EMPTY_ALLOCATION = {
@@ -91,6 +106,68 @@ function softButtonClass(extra = "") {
 
 function primaryButtonClass(extra = "") {
   return `workspace-primary-button ${extra}`.trim();
+}
+
+function digitsOnly(value?: string | null) {
+  return (value || "").replace(/\D/g, "");
+}
+
+function normalizePositionPart(value?: string | null) {
+  return digitsOnly(value).slice(0, 2);
+}
+
+function formatLocalFromPosition(fields: PositionFields) {
+  const shed = normalizePositionPart(fields.shed);
+  return shed ? `Galpão ${shed}` : "";
+}
+
+function formatStreetFromPosition(fields: PositionFields) {
+  const parts = [
+    ["Rua", normalizePositionPart(fields.street)],
+    ["Prédio", normalizePositionPart(fields.building)],
+    ["Apartamento", normalizePositionPart(fields.apartment)],
+    ["Posição", normalizePositionPart(fields.palletPosition)]
+  ]
+    .filter(([, value]) => Boolean(value))
+    .map(([label, value]) => `${label} ${value}`);
+
+  return parts.join(" | ");
+}
+
+function formatPositionCode(fields: PositionFields) {
+  return [
+    normalizePositionPart(fields.shed),
+    normalizePositionPart(fields.street),
+    normalizePositionPart(fields.building),
+    normalizePositionPart(fields.apartment),
+    normalizePositionPart(fields.palletPosition)
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
+function parsePositionFields(local?: string | null, street?: string | null): PositionFields {
+  const combined = `${local || ""} ${street || ""}`.trim();
+  const read = (pattern: RegExp) => combined.match(pattern)?.[1] || "";
+  const parsed = {
+    shed: read(/Galp[aã]o\s*0*(\d{1,2})/i),
+    street: read(/Rua\s*0*(\d{1,2})/i),
+    building: read(/Pr[eé]dio\s*0*(\d{1,2})/i),
+    apartment: read(/Apartamento\s*0*(\d{1,2})/i),
+    palletPosition: read(/Posi[cç][aã]o(?:\s+no\s+pallet)?\s*0*(\d{1,2})/i)
+  };
+
+  if (!parsed.street && street) {
+    const fallbackStreet = digitsOnly(street).slice(0, 2);
+    if (fallbackStreet) parsed.street = fallbackStreet;
+  }
+
+  if (!parsed.shed && local) {
+    const fallbackShed = digitsOnly(local).slice(0, 2);
+    if (fallbackShed) parsed.shed = fallbackShed;
+  }
+
+  return parsed;
 }
 
 export function StockPage() {
@@ -126,7 +203,7 @@ export function StockPage() {
 
   const [replenishmentForm, setReplenishmentForm] = useState(EMPTY_REPLENISHMENT);
   const [replenishmentProduct, setReplenishmentProduct] = useState<StockBaseProduct | null>(null);
-  const [replenishmentContext, setReplenishmentContext] = useState<{ local?: string | null; street?: string | null } | null>(null);
+  const [replenishmentContext, setReplenishmentContext] = useState<PositionFields | null>(null);
   const [savingReplenishment, setSavingReplenishment] = useState(false);
   const [replenishmentFrom, setReplenishmentFrom] = useState(isoDaysAgo(30));
   const [replenishmentTo, setReplenishmentTo] = useState(isoToday());
@@ -153,7 +230,7 @@ export function StockPage() {
   const [savingAllocation, setSavingAllocation] = useState(false);
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
 
-  const periodLabel = useMemo(() => `${isoDaysAgo(30)} ate ${isoToday()}`, []);
+  const periodLabel = useMemo(() => `${isoDaysAgo(30)} até ${isoToday()}`, []);
 
   async function loadBase(pageOverride?: number, pageSizeOverride?: number) {
     const currentPage = pageOverride ?? basePage;
@@ -246,7 +323,7 @@ export function StockPage() {
   async function resolveProduct(ref: string, target: "locate" | "abastecimento" | "validades" | "alocacao") {
     const clean = ref.trim();
     if (!clean) {
-      setError("Bipe ou digite um codigo valido.");
+      setError("Bipe ou digite um código válido.");
       return;
     }
 
@@ -263,10 +340,7 @@ export function StockPage() {
       }
       if (target === "abastecimento") {
         setReplenishmentProduct(product);
-        setReplenishmentContext({
-          local: expirationContext.local || null,
-          street: expirationContext.street || null
-        });
+        setReplenishmentContext(parsePositionFields(expirationContext.local, expirationContext.street));
         setReplenishmentForm((prev) => ({
           ...prev,
           scannedCode: clean,
@@ -293,7 +367,7 @@ export function StockPage() {
       }
       if (target === "validades") setExpirationProduct(null);
       if (target === "alocacao") setAllocationProduct(null);
-      setError(err?.response?.data?.message || "Produto nao encontrado na base do estoque.");
+      setError(err?.response?.data?.message || "Produto não encontrado na base do estoque.");
     }
   }
 
@@ -382,8 +456,8 @@ export function StockPage() {
         workDate: expirationForm.workDate,
         quantity: expirationForm.quantity,
         expiryDate: expirationForm.expiryDate,
-        local: expirationForm.local,
-        street: expirationForm.street
+        local: formatLocalFromPosition(expirationForm),
+        street: formatStreetFromPosition(expirationForm)
       });
       setMessage("Validade registrada.");
       setExpirationForm({ ...EMPTY_EXPIRATION, workDate: isoToday() });
@@ -411,7 +485,7 @@ export function StockPage() {
     }
     const quantity = Number(allocationForm.quantity || 0);
     if (!quantity || quantity <= 0) {
-      setError("Quantidade da alocacao deve ser maior que zero.");
+      setError("Quantidade da alocação deve ser maior que zero.");
       return;
     }
     setAllocationItems((prev) => [
@@ -492,7 +566,7 @@ export function StockPage() {
 
       if (editingAllocationId) {
         await api.patch(`/stock/allocations/${editingAllocationId}`, payload);
-        setMessage("Alocacao atualizada.");
+        setMessage("Alocação atualizada.");
       } else {
         await api.post("/stock/allocations", payload);
         setMessage(allocationMode === "pallet" ? "Pallet alocado." : "Produto alocado.");
@@ -501,7 +575,7 @@ export function StockPage() {
       resetAllocationForm();
       await Promise.all([loadAllocations(), loadBase()]);
     } catch (err: any) {
-      setError(err?.response?.data?.message || "Falha ao salvar alocacao.");
+      setError(err?.response?.data?.message || "Falha ao salvar alocação.");
     } finally {
       setSavingAllocation(false);
     }
@@ -515,7 +589,7 @@ export function StockPage() {
             <div>
               <h2 className="workspace-title">Estoque</h2>
               <p className="workspace-copy">
-              Base propria para abastecimento, validades e localizacao. Nao tem relacao com os imports da Expedicao.
+                Base própria para abastecimento, validades e localização. Não tem relação com os imports da Expedição.
               </p>
             </div>
             <div className="workspace-nav">
@@ -535,14 +609,14 @@ export function StockPage() {
                 Validades
               </button>
               <button type="button" className={sectionButtonClass(activeTab === "alocacao")} onClick={() => setActiveTab("alocacao")}>
-                Alocacao
+                Alocação
               </button>
             </div>
           </div>
 
           <div className="grid md:grid-cols-4 gap-3">
             <article className="workspace-kpi-card">
-              <p className="text-sm text-slate-500">Periodo padrao</p>
+              <p className="text-sm text-slate-500">Período padrão</p>
               <p className="text-lg font-semibold">{periodLabel}</p>
             </article>
             <article className="workspace-kpi-card">
@@ -599,14 +673,14 @@ export function StockPage() {
 
               <div className="grid lg:grid-cols-2 gap-4">
                 <div className="workspace-kpi-card h-72">
-                  <h3 className="font-semibold mb-2">Tendencia diaria</h3>
+                  <h3 className="font-semibold mb-2">Tendência diária</h3>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={dashboard?.trend || []}>
                       <XAxis dataKey="work_date" />
                       <YAxis />
                       <Tooltip />
                       <Line dataKey="entries" stroke="#0f766e" name="Entradas" />
-                      <Line dataKey="exits" stroke="#dc2626" name="Saidas" />
+                      <Line dataKey="exits" stroke="#dc2626" name="Saídas" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -646,7 +720,7 @@ export function StockPage() {
                         <th>Tipo</th>
                         <th>Atividade</th>
                         <th>Produto</th>
-                        <th>Descricao</th>
+                        <th>Descri??o</th>
                         <th>SKU</th>
                         <th>Local</th>
                         <th>Rua</th>
@@ -659,7 +733,7 @@ export function StockPage() {
                       {activityLogs.map((item) => (
                         <tr key={item.id} className="border-b">
                           <td className="py-2">{item.work_date ? new Date(`${item.work_date}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
-                          <td>{item.movement_type === "entry" ? "Entrada" : "Saida"}</td>
+                  <td>{item.movement_type === "entry" ? "Entrada" : "Saída"}</td>
                           <td>{item.activity_type === "validade" ? "Validade" : "Abastecimento"}</td>
                           <td>{item.product_code}</td>
                           <td>{item.description}</td>
@@ -673,7 +747,7 @@ export function StockPage() {
                       ))}
                       {!activityLogs.length && (
                         <tr>
-                          <td className="py-3 text-slate-500" colSpan={11}>Nenhuma movimentacao encontrada no periodo.</td>
+                          <td className="py-3 text-slate-500" colSpan={11}>Nenhuma movimentação encontrada no período.</td>
                         </tr>
                       )}
                     </tbody>
@@ -728,14 +802,14 @@ export function StockPage() {
 
               {locatedItem && (
                 <div className="rounded-2xl border border-teal-200 bg-teal-50/40 p-4">
-                  <p className="text-sm text-slate-500 mb-1">Posicao encontrada</p>
+                  <p className="text-sm text-slate-500 mb-1">Posição encontrada</p>
                   <p className="text-xl font-bold">{locatedItem.description}</p>
                   <div className="grid md:grid-cols-4 gap-3 mt-3 text-sm">
-                    <div><span className="text-slate-500">Cod Produto:</span> {locatedItem.product_code}</div>
-                    <div><span className="text-slate-500">Codigo Barras:</span> {locatedItem.barcode || "-"}</div>
+                    <div><span className="text-slate-500">Cód. produto:</span> {locatedItem.product_code}</div>
+                    <div><span className="text-slate-500">Código de barras:</span> {locatedItem.barcode || "-"}</div>
                     <div><span className="text-slate-500">Fornecedor:</span> {locatedItem.supplier_name || "-"}</div>
                     <div>
-                      <span className="text-slate-500">Posicao atual:</span>{" "}
+                      <span className="text-slate-500">Posição atual:</span>{" "}
                       {locatedItem.allocation_position_code || `${locatedItem.local || "-"} ${locatedItem.street || ""}`.trim()}
                     </div>
                   </div>
@@ -744,11 +818,11 @@ export function StockPage() {
 
               {Boolean(locatedAllocations.length) && (
                 <div className="workspace-kpi-card overflow-auto">
-                  <h3 className="font-semibold mb-3">Alocacoes atuais do produto</h3>
+                  <h3 className="font-semibold mb-3">Alocações atuais do produto</h3>
                   <table className="workspace-table">
                     <thead>
                       <tr>
-                        <th className="py-2">Posicao</th>
+                        <th className="py-2">Posi??o</th>
                         <th>Pallet</th>
                         <th>Qtd</th>
                         <th>Modo</th>
@@ -776,9 +850,9 @@ export function StockPage() {
                 <table className="workspace-table">
                   <thead>
                     <tr className="text-left border-b">
-                      <th className="py-2">Cod Produto</th>
-                      <th>Descricao</th>
-                      <th>Codigo Barras</th>
+                      <th className="py-2">C?d. produto</th>
+                      <th>Descri??o</th>
+                      <th>C?digo de barras</th>
                       <th>Cod Forn.</th>
                       <th>Fornecedor</th>
                       <th>Local</th>
@@ -836,14 +910,14 @@ export function StockPage() {
                   >
                     Anterior
                   </button>
-                  <span>Pagina {basePage}</span>
+                  <span>Página {basePage}</span>
                   <button
                     type="button"
                     className={softButtonClass("rounded-lg px-3 py-1")}
                     disabled={basePage * basePageSize >= baseTotal}
                     onClick={() => void loadBase(basePage + 1)}
                   >
-                    Proxima
+                    Próxima
                   </button>
                 </div>
               </div>
@@ -855,7 +929,7 @@ export function StockPage() {
               <form onSubmit={onImportBase} className="workspace-kpi-card space-y-3">
                 <h3 className="font-semibold">Importar Base do Estoque</h3>
                 <p className="text-sm text-slate-600">
-                  Estrutura esperada: Codigo Produto, Descricao, Codigo Barras, Cod Forn., Fornecedor, Local, Rua.
+                  Estrutura esperada: Código Produto, Descrição, Código Barras, Cód Forn., Fornecedor, Local, Rua.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <input
@@ -876,7 +950,7 @@ export function StockPage() {
                       } catch {
                         setBaseFile(null);
                         setBaseFileBuffer(null);
-                        setError("Nao foi possivel ler o arquivo selecionado.");
+                        setError("Não foi possível ler o arquivo selecionado.");
                       }
                     }}
                   />
@@ -891,7 +965,7 @@ export function StockPage() {
               </form>
 
               <div className="workspace-kpi-card overflow-auto">
-                <h3 className="font-semibold mb-3">Historico de imports da base</h3>
+                <h3 className="font-semibold mb-3">Histórico de imports da base</h3>
                 <table className="workspace-table">
                   <thead>
                     <tr className="text-left border-b">
@@ -932,17 +1006,26 @@ export function StockPage() {
                 <div className="grid md:grid-cols-5 gap-3">
                   <input className="border rounded-xl px-3 py-2" type="date" value={replenishmentForm.workDate} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, workDate: e.target.value }))} />
                   <input className="border rounded-xl px-3 py-2" value={replenishmentForm.entryTime} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, entryTime: e.target.value }))} placeholder="Hora" />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Codigo Produto (bipado)" value={replenishmentForm.scannedCode} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, scannedCode: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Código Produto (bipado)" value={replenishmentForm.scannedCode} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, scannedCode: e.target.value }))} />
                   <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("abastecimento")}>Escanear</button>
                   <button type="button" className={softButtonClass()} onClick={() => resolveProduct(replenishmentForm.scannedCode, "abastecimento")}>Buscar produto</button>
                 </div>
 
                 <div className="grid md:grid-cols-5 gap-3 text-sm">
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentProduct?.product_code || ""} placeholder="Cod Produto" />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={replenishmentProduct?.description || ""} placeholder="Descricao" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentProduct?.product_code || ""} placeholder="Cód. produto" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={replenishmentProduct?.description || ""} placeholder="Descrição" />
                   <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentProduct?.supplier_name || ""} placeholder="Fornecedor" />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.local || ""} placeholder="Local vindo de Validades" />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.street || ""} placeholder="Rua vinda de Validades" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.shed || ""} placeholder="Galpão" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.street || ""} placeholder="Rua" />
+                </div>
+
+                <div className="grid md:grid-cols-5 gap-3 text-sm">
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.building || ""} placeholder="Prédio" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.apartment || ""} placeholder="Apartamento" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentContext?.palletPosition || ""} placeholder="Posição no pallet" />
+                  <div className="border rounded-xl px-3 py-2 bg-slate-50 text-slate-500 flex items-center md:col-span-2">
+                    Posição padrão: Galpão / Rua / Prédio / Apartamento / Posição no pallet
+                  </div>
                 </div>
 
                 <div className="grid md:grid-cols-4 gap-3">
@@ -953,7 +1036,7 @@ export function StockPage() {
                 </div>
 
                 <div className="flex items-center justify-between gap-3 text-sm text-slate-600">
-                  <span>Usuario: {storedUser?.name || "-"}</span>
+                  <span>Usuário: {storedUser?.name || "-"}</span>
                   <button type="submit" disabled={savingReplenishment} className={primaryButtonClass()}>
                     {savingReplenishment ? "Salvando..." : "Registrar abastecimento"}
                   </button>
@@ -971,18 +1054,18 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr className="text-left border-b">
-                        <th className="py-2">Descricao</th>
+                        <th className="py-2">Descri??o</th>
                         <th>Data</th>
                         <th>Hora</th>
-                        <th>Cod Produto</th>
-                        <th>Codigo Barras</th>
+                        <th>C?d. produto</th>
+                        <th>C?digo de barras</th>
                         <th>Local</th>
                         <th>Rua</th>
                         <th>Qtd 1</th>
                         <th>Validade 1</th>
                         <th>Qtd 2</th>
                         <th>Validade 2</th>
-                        <th>Usuario</th>
+                        <th>Usu?rio</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1004,7 +1087,7 @@ export function StockPage() {
                       ))}
                       {!replenishments.length && (
                         <tr>
-                          <td className="py-3 text-slate-500" colSpan={12}>Nenhum abastecimento registrado no periodo.</td>
+                          <td className="py-3 text-slate-500" colSpan={12}>Nenhum abastecimento registrado no per?odo.</td>
                         </tr>
                       )}
                     </tbody>
@@ -1020,24 +1103,30 @@ export function StockPage() {
                 <h3 className="font-semibold">Controle de Validades</h3>
                 <div className="grid md:grid-cols-4 gap-3">
                   <input className="border rounded-xl px-3 py-2" type="date" value={expirationForm.workDate} onChange={(e) => setExpirationForm((prev) => ({ ...prev, workDate: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Codigo Produto (bipado)" value={expirationForm.scannedCode} onChange={(e) => setExpirationForm((prev) => ({ ...prev, scannedCode: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Código Produto (bipado)" value={expirationForm.scannedCode} onChange={(e) => setExpirationForm((prev) => ({ ...prev, scannedCode: e.target.value }))} />
                   <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("validades")}>Escanear</button>
                   <button type="button" className={softButtonClass()} onClick={() => resolveProduct(expirationForm.scannedCode, "validades")}>Buscar produto</button>
                 </div>
 
                 <div className="grid md:grid-cols-5 gap-3 text-sm">
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={expirationProduct?.product_code || ""} placeholder="Cod Produto" />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={expirationProduct?.description || ""} placeholder="Descricao" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={expirationProduct?.product_code || ""} placeholder="Cód. produto" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={expirationProduct?.description || ""} placeholder="Descrição" />
                   <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={expirationProduct?.supplier_name || ""} placeholder="Fornecedor" />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={expirationProduct?.barcode || ""} placeholder="Codigo Barras" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={expirationProduct?.barcode || ""} placeholder="Código de barras" />
                 </div>
 
                 <div className="grid md:grid-cols-5 gap-3">
                   <input className="border rounded-xl px-3 py-2" placeholder="Quantidade" value={expirationForm.quantity} onChange={(e) => setExpirationForm((prev) => ({ ...prev, quantity: e.target.value }))} />
                   <input className="border rounded-xl px-3 py-2" type="date" value={expirationForm.expiryDate} onChange={(e) => setExpirationForm((prev) => ({ ...prev, expiryDate: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Local" value={expirationForm.local} onChange={(e) => setExpirationForm((prev) => ({ ...prev, local: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Rua / Posicao" value={expirationForm.street} onChange={(e) => setExpirationForm((prev) => ({ ...prev, street: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={storedUser?.name || ""} placeholder="Usuario" />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Galpão" value={expirationForm.shed} onChange={(e) => setExpirationForm((prev) => ({ ...prev, shed: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Rua" value={expirationForm.street} onChange={(e) => setExpirationForm((prev) => ({ ...prev, street: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Prédio" value={expirationForm.building} onChange={(e) => setExpirationForm((prev) => ({ ...prev, building: e.target.value }))} />
+                </div>
+
+                <div className="grid md:grid-cols-5 gap-3">
+                  <input className="border rounded-xl px-3 py-2" placeholder="Apartamento" value={expirationForm.apartment} onChange={(e) => setExpirationForm((prev) => ({ ...prev, apartment: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Posição no pallet" value={expirationForm.palletPosition} onChange={(e) => setExpirationForm((prev) => ({ ...prev, palletPosition: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-3" readOnly value={storedUser?.name || ""} placeholder="Usuário" />
                 </div>
 
                 <div className="flex justify-end">
@@ -1058,15 +1147,15 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr className="text-left border-b">
-                        <th className="py-2">Descricao</th>
+                        <th className="py-2">Descri??o</th>
                         <th>Data</th>
-                        <th>Cod Produto</th>
-                        <th>Codigo Barras</th>
+                        <th>C?d. produto</th>
+                        <th>C?digo de barras</th>
                         <th>Local</th>
                         <th>Rua</th>
                         <th>Quantidade</th>
                         <th>Validade</th>
-                        <th>Usuario</th>
+                        <th>Usu?rio</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1085,7 +1174,7 @@ export function StockPage() {
                       ))}
                       {!expirations.length && (
                         <tr>
-                          <td className="py-3 text-slate-500" colSpan={9}>Nenhuma validade registrada no periodo.</td>
+                          <td className="py-3 text-slate-500" colSpan={9}>Nenhuma validade registrada no período.</td>
                         </tr>
                       )}
                     </tbody>
@@ -1099,7 +1188,7 @@ export function StockPage() {
             <div className="space-y-4">
               <form onSubmit={submitAllocation} className="workspace-kpi-card space-y-4">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <h3 className="font-semibold">{editingAllocationId ? "Editar / mover alocacao" : "Nova alocacao"}</h3>
+                  <h3 className="font-semibold">{editingAllocationId ? "Editar / mover alocação" : "Nova alocação"}</h3>
                   <div className="grid grid-cols-2 gap-1 rounded-xl border p-1">
                     <button
                       type="button"
@@ -1124,7 +1213,7 @@ export function StockPage() {
                 <div className="grid md:grid-cols-6 gap-3">
                   <input
                     className="border rounded-xl px-3 py-2 md:col-span-2"
-                    placeholder="Bipar produto / codigo de barras"
+                    placeholder="Bipar produto / código de barras"
                     value={allocationForm.scannedCode}
                     onChange={(e) => setAllocationForm((prev) => ({ ...prev, scannedCode: e.target.value }))}
                     onBlur={() => {
@@ -1155,8 +1244,8 @@ export function StockPage() {
                 </div>
 
                 <div className="grid md:grid-cols-4 gap-3 text-sm">
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={allocationProduct?.product_code || ""} placeholder="Cod Produto" />
-                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={allocationProduct?.description || ""} placeholder="Descricao" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={allocationProduct?.product_code || ""} placeholder="Cód. produto" />
+                  <input className="border rounded-xl px-3 py-2 bg-slate-50 md:col-span-2" readOnly value={allocationProduct?.description || ""} placeholder="Descrição" />
                   <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={allocationProduct?.supplier_name || ""} placeholder="Fornecedor" />
                 </div>
 
@@ -1166,8 +1255,8 @@ export function StockPage() {
                     <table className="workspace-table">
                       <thead>
                         <tr>
-                          <th className="py-2">Cod Produto</th>
-                          <th>Descricao</th>
+                          <th className="py-2">C?d. produto</th>
+                          <th>Descri??o</th>
                           <th>Quantidade</th>
                           <th></th>
                         </tr>
@@ -1200,33 +1289,33 @@ export function StockPage() {
                 )}
 
                 <div className="grid md:grid-cols-6 gap-3">
-                  <input className="border rounded-xl px-3 py-2" placeholder="Galpao" value={allocationForm.shed} onChange={(e) => setAllocationForm((prev) => ({ ...prev, shed: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Galpão" value={allocationForm.shed} onChange={(e) => setAllocationForm((prev) => ({ ...prev, shed: e.target.value }))} />
                   <input className="border rounded-xl px-3 py-2" placeholder="Rua" value={allocationForm.street} onChange={(e) => setAllocationForm((prev) => ({ ...prev, street: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Predio" value={allocationForm.building} onChange={(e) => setAllocationForm((prev) => ({ ...prev, building: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Prédio" value={allocationForm.building} onChange={(e) => setAllocationForm((prev) => ({ ...prev, building: e.target.value }))} />
                   <input className="border rounded-xl px-3 py-2" placeholder="Apartamento" value={allocationForm.apartment} onChange={(e) => setAllocationForm((prev) => ({ ...prev, apartment: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Posicao no pallet" value={allocationForm.palletPosition} onChange={(e) => setAllocationForm((prev) => ({ ...prev, palletPosition: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Codigo do pallet (opcional)" value={allocationForm.palletCode} onChange={(e) => setAllocationForm((prev) => ({ ...prev, palletCode: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Posição no pallet" value={allocationForm.palletPosition} onChange={(e) => setAllocationForm((prev) => ({ ...prev, palletPosition: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Código do pallet (opcional)" value={allocationForm.palletCode} onChange={(e) => setAllocationForm((prev) => ({ ...prev, palletCode: e.target.value }))} />
                 </div>
 
                 <textarea
                   className="border rounded-xl px-3 py-2 w-full min-h-24"
-                  placeholder="Observacoes da alocacao"
+                  placeholder="Observações da alocação"
                   value={allocationForm.notes}
                   onChange={(e) => setAllocationForm((prev) => ({ ...prev, notes: e.target.value }))}
                 />
 
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <span className="text-sm text-slate-500">
-                    Posicao final: {allocationForm.shed || "-"}{allocationForm.street || "-"}{allocationForm.building || "-"}{allocationForm.apartment || "-"}{allocationForm.palletPosition || "-"}
+                    Posição final: {formatPositionCode(allocationForm) || "-"}
                   </span>
                   <div className="flex gap-2">
                     {editingAllocationId && (
                       <button type="button" className={softButtonClass()} onClick={resetAllocationForm}>
-                        Cancelar edicao
+                        Cancelar edição
                       </button>
                     )}
                     <button type="submit" disabled={savingAllocation} className={primaryButtonClass()}>
-                      {savingAllocation ? "Salvando..." : editingAllocationId ? "Salvar alocacao" : "Registrar alocacao"}
+                      {savingAllocation ? "Salvando..." : editingAllocationId ? "Salvar edição" : "Registrar alocação"}
                     </button>
                   </div>
                 </div>
@@ -1234,10 +1323,10 @@ export function StockPage() {
 
               <div className="workspace-kpi-card space-y-3">
                 <div className="grid md:grid-cols-3 gap-3">
-                  <input className="border rounded-xl px-3 py-2" placeholder="Buscar produto / posicao / fornecedor" value={allocationSearch} onChange={(e) => setAllocationSearch(e.target.value)} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Filtrar por codigo do pallet" value={allocationPalletSearch} onChange={(e) => setAllocationPalletSearch(e.target.value)} />
-                  <button type="button" className={softButtonClass()} onClick={() => loadAllocations().catch(() => setError("Falha ao carregar alocacoes."))}>
-                    Atualizar alocacoes
+                  <input className="border rounded-xl px-3 py-2" placeholder="Buscar produto / posição / fornecedor" value={allocationSearch} onChange={(e) => setAllocationSearch(e.target.value)} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Filtrar por código do pallet" value={allocationPalletSearch} onChange={(e) => setAllocationPalletSearch(e.target.value)} />
+                  <button type="button" className={softButtonClass()} onClick={() => loadAllocations().catch(() => setError("Falha ao carregar alocações."))}>
+                    Atualizar alocações
                   </button>
                 </div>
 
@@ -1245,10 +1334,10 @@ export function StockPage() {
                   <table className="workspace-table">
                     <thead>
                       <tr>
-                        <th className="py-2">Cod Produto</th>
-                        <th>Descricao</th>
+                        <th className="py-2">C?d. produto</th>
+                        <th>Descri??o</th>
                         <th>Qtd</th>
-                        <th>Posicao</th>
+                        <th>Posi??o</th>
                         <th>Pallet</th>
                         <th>Modo</th>
                         <th>Operador</th>
@@ -1276,7 +1365,7 @@ export function StockPage() {
                       ))}
                       {!allocations.length && (
                         <tr>
-                          <td className="py-3 text-slate-500" colSpan={9}>Nenhuma alocacao registrada.</td>
+                          <td className="py-3 text-slate-500" colSpan={9}>Nenhuma alocação registrada.</td>
                         </tr>
                       )}
                     </tbody>
@@ -1285,12 +1374,12 @@ export function StockPage() {
               </div>
 
               <div className="workspace-kpi-card overflow-auto">
-                <h3 className="font-semibold mb-3">Log de alocacao</h3>
+                <h3 className="font-semibold mb-3">Log de alocação</h3>
                 <table className="workspace-table">
                   <thead>
                     <tr>
                       <th className="py-2">Data/Hora</th>
-                      <th>Acao</th>
+                      <th>Ação</th>
                       <th>Produto</th>
                       <th>Qtd</th>
                       <th>Origem</th>
@@ -1303,7 +1392,7 @@ export function StockPage() {
                     {allocationLogs.map((log) => (
                       <tr key={log.id}>
                         <td className="py-2">{new Date(log.created_at).toLocaleString("pt-BR")}</td>
-                        <td>{log.action_type === "move" ? "Movimentacao" : log.action_type === "update" ? "Edicao" : "Registro"}</td>
+                        <td>{log.action_type === "move" ? "Movimentação" : log.action_type === "update" ? "Edição" : "Registro"}</td>
                         <td>{log.product_code} - {log.description}</td>
                         <td>{Number(log.quantity)}</td>
                         <td>{log.previous_position_code || "-"}</td>
@@ -1314,7 +1403,7 @@ export function StockPage() {
                     ))}
                     {!allocationLogs.length && (
                       <tr>
-                        <td className="py-3 text-slate-500" colSpan={8}>Nenhum log de alocacao encontrado.</td>
+                          <td className="py-3 text-slate-500" colSpan={8}>Nenhum log de alocação encontrado.</td>
                       </tr>
                     )}
                   </tbody>
