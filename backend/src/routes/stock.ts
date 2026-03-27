@@ -11,6 +11,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const baseListSchema = z.object({
   supplier: z.string().optional(),
   street: z.string().optional(),
+  pallet: z.string().optional(),
   search: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(100)
@@ -227,6 +228,18 @@ async function findLatestAllocationsByProductCodes(productCodes: string[]) {
   return new Map(result.rows.map((row) => [row.product_code, row]));
 }
 
+function mergeRowsWithAllocations<T extends { product_code?: string | null }>(rows: T[], allocationMap: Map<string, any>) {
+  return rows.map((row) => {
+    const allocation = row.product_code ? allocationMap.get(row.product_code) : null;
+    return {
+      ...row,
+      allocation_position_code: allocation?.position_code || null,
+      allocation_position_label: allocation?.position_label || null,
+      allocation_pallet_code: allocation?.pallet_code || null
+    };
+  });
+}
+
 async function findExpirationContext(productCode: string) {
   const latestLocation = await pool.query(
     `
@@ -335,7 +348,7 @@ stockRouter.get("/base", authRequired, async (req, res) => {
   const parsed = baseListSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ message: "Query invalida." });
 
-  const { supplier, street, search, page, pageSize } = parsed.data;
+  const { supplier, street, pallet, search, page, pageSize } = parsed.data;
   const filters: string[] = [];
   const values: unknown[] = [];
 
@@ -347,6 +360,18 @@ stockRouter.get("/base", authRequired, async (req, res) => {
   if (street?.trim()) {
     values.push(`%${street.trim()}%`);
     filters.push(`street ILIKE $${values.length}`);
+  }
+
+  if (pallet?.trim()) {
+    values.push(`%${pallet.trim()}%`);
+    filters.push(`
+      EXISTS (
+        SELECT 1
+        FROM stock_allocations sa
+        WHERE sa.product_code = stock_base_products.product_code
+          AND COALESCE(sa.pallet_code, '') ILIKE $${values.length}
+      )
+    `);
   }
 
   if (search?.trim()) {
@@ -396,15 +421,7 @@ stockRouter.get("/base", authRequired, async (req, res) => {
   ]);
 
   const allocationMap = await findLatestAllocationsByProductCodes(items.rows.map((row) => row.product_code));
-  const mergedItems = items.rows.map((row) => {
-    const allocation = allocationMap.get(row.product_code);
-    return {
-      ...row,
-      allocation_position_code: allocation?.position_code || null,
-      allocation_position_label: allocation?.position_label || null,
-      allocation_pallet_code: allocation?.pallet_code || null
-    };
-  });
+  const mergedItems = mergeRowsWithAllocations(items.rows, allocationMap);
 
   return res.json({
     items: mergedItems,
@@ -575,8 +592,8 @@ stockRouter.get("/activity", authRequired, async (req, res) => {
     `,
     [...values, pageSize, offset]
   );
-
-  return res.json({ items: result.rows, page, pageSize });
+  const allocationMap = await findLatestAllocationsByProductCodes(result.rows.map((row) => row.product_code).filter(Boolean));
+  return res.json({ items: mergeRowsWithAllocations(result.rows, allocationMap), page, pageSize });
 });
 
 stockRouter.get("/imports", authRequired, async (_req, res) => {
@@ -715,8 +732,8 @@ stockRouter.get("/replenishments", authRequired, async (req, res) => {
     `,
     [...values, pageSize, offset]
   );
-
-  return res.json({ items: result.rows, page, pageSize });
+  const allocationMap = await findLatestAllocationsByProductCodes(result.rows.map((row) => row.product_code).filter(Boolean));
+  return res.json({ items: mergeRowsWithAllocations(result.rows, allocationMap), page, pageSize });
 });
 
 stockRouter.post("/replenishments", authRequired, async (req: AuthenticatedRequest, res) => {
@@ -848,8 +865,8 @@ stockRouter.get("/expirations", authRequired, async (req, res) => {
     `,
     [...values, pageSize, offset]
   );
-
-  return res.json({ items: result.rows, page, pageSize });
+  const allocationMap = await findLatestAllocationsByProductCodes(result.rows.map((row) => row.product_code).filter(Boolean));
+  return res.json({ items: mergeRowsWithAllocations(result.rows, allocationMap), page, pageSize });
 });
 
 stockRouter.post("/expirations", authRequired, async (req: AuthenticatedRequest, res) => {

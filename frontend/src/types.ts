@@ -187,6 +187,9 @@ export type StockReplenishmentRecord = {
   user_name?: string | null;
   local?: string | null;
   street?: string | null;
+  allocation_position_code?: string | null;
+  allocation_position_label?: string | null;
+  allocation_pallet_code?: string | null;
   created_at: string;
 };
 
@@ -203,6 +206,9 @@ export type StockExpirationRecord = {
   user_name?: string | null;
   local?: string | null;
   street?: string | null;
+  allocation_position_code?: string | null;
+  allocation_position_label?: string | null;
+  allocation_pallet_code?: string | null;
   created_at: string;
 };
 
@@ -221,6 +227,9 @@ export type StockActivityLog = {
   expiry_date?: string | null;
   quantity: number;
   operator_name?: string | null;
+  allocation_position_code?: string | null;
+  allocation_position_label?: string | null;
+  allocation_pallet_code?: string | null;
   created_at: string;
 };
 

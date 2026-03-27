@@ -146,6 +146,24 @@ function formatPositionCode(fields: PositionFields) {
     .join("");
 }
 
+function formatDateOnly(value?: string | null) {
+  if (!value) return "-";
+  const normalized = String(value).slice(0, 10);
+  const date = new Date(`${normalized}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("pt-BR");
+}
+
+function dottedPosition(code?: string | null) {
+  if (!code) return "-";
+  const digits = digitsOnly(code);
+  return digits ? digits.match(/.{1,2}/g)?.join(".") || digits : "-";
+}
+
+function formatStoredPosition(local?: string | null, street?: string | null) {
+  const parsed = parsePositionFields(local, street);
+  return dottedPosition(formatPositionCode(parsed));
+}
+
 function parsePositionFields(local?: string | null, street?: string | null): PositionFields {
   const combined = `${local || ""} ${street || ""}`.trim();
   const read = (pattern: RegExp) => combined.match(pattern)?.[1] || "";
@@ -183,6 +201,7 @@ export function StockPage() {
 
   const [supplierFilter, setSupplierFilter] = useState("");
   const [streetFilter, setStreetFilter] = useState("");
+  const [palletFilter, setPalletFilter] = useState("");
   const [searchFilter, setSearchFilter] = useState("");
   const [scanValue, setScanValue] = useState("");
 
@@ -238,6 +257,7 @@ export function StockPage() {
     const params = new URLSearchParams({ page: String(currentPage), pageSize: String(currentPageSize) });
     if (supplierFilter.trim()) params.set("supplier", supplierFilter.trim());
     if (streetFilter.trim()) params.set("street", streetFilter.trim());
+    if (palletFilter.trim()) params.set("pallet", palletFilter.trim());
     if (searchFilter.trim()) params.set("search", searchFilter.trim());
 
     const [baseRes, importsRes] = await Promise.all([api.get(`/stock/base?${params.toString()}`), api.get("/stock/imports")]);
@@ -399,7 +419,7 @@ export function StockPage() {
       await loadBase();
     } catch (err: any) {
       if (err?.message?.includes("ERR_UPLOAD_FILE_CHANGED")) {
-        setError("O arquivo foi alterado depois da selecao. Escolha a planilha novamente e envie.");
+        setError("O arquivo foi alterado depois da sele??o. Escolha a planilha novamente e envie.");
       } else {
         setError(err?.response?.data?.message || "Falha ao importar base do estoque.");
       }
@@ -545,7 +565,7 @@ export function StockPage() {
           ? [{ productCode: allocationProduct.product_code, quantity: Number(allocationForm.quantity || 0) }]
           : [];
 
-    if (!items.length) {
+    if (!editingAllocationId && !items.length) {
       setError("Selecione pelo menos um produto para alocar.");
       return;
     }
@@ -554,7 +574,7 @@ export function StockPage() {
     try {
       const payload = {
         mode: allocationMode,
-        items,
+        items: items.length ? items : undefined,
         shed: allocationForm.shed,
         street: allocationForm.street,
         building: allocationForm.building,
@@ -722,8 +742,8 @@ export function StockPage() {
                         <th>Produto</th>
                         <th>Descri??o</th>
                         <th>SKU</th>
-                        <th>Local</th>
-                        <th>Rua</th>
+                        <th>Posi??o</th>
+                        <th>Palete</th>
                         <th>Validade</th>
                         <th>Quantidade</th>
                         <th>Operador</th>
@@ -738,9 +758,9 @@ export function StockPage() {
                           <td>{item.product_code}</td>
                           <td>{item.description}</td>
                           <td>{item.barcode || "-"}</td>
-                          <td>{item.local || "-"}</td>
-                          <td>{item.street || "-"}</td>
-                          <td>{item.expiry_date ? new Date(`${item.expiry_date}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
+                          <td>{item.allocation_position_code ? dottedPosition(item.allocation_position_code) : formatStoredPosition(item.local, item.street)}</td>
+                          <td>{item.allocation_pallet_code || "-"}</td>
+                          <td>{formatDateOnly(item.expiry_date)}</td>
                           <td>{Number(item.quantity || 0).toFixed(2)}</td>
                           <td>{item.operator_name || "-"}</td>
                         </tr>
@@ -759,7 +779,7 @@ export function StockPage() {
 
           {activeTab === "localizar" && (
             <div className="space-y-4">
-              <form onSubmit={onFilterBase} className="grid md:grid-cols-6 gap-3">
+              <form onSubmit={onFilterBase} className="grid md:grid-cols-7 gap-3">
                 <select className="border rounded-xl px-3 py-2" value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}>
                   <option value="">Todos os fornecedores</option>
                   {suppliers.map((supplier) => (
@@ -771,6 +791,12 @@ export function StockPage() {
                   placeholder="Filtrar por rua"
                   value={streetFilter}
                   onChange={(e) => setStreetFilter(e.target.value)}
+                />
+                <input
+                  className="border rounded-xl px-3 py-2"
+                  placeholder="Filtrar por pallet"
+                  value={palletFilter}
+                  onChange={(e) => setPalletFilter(e.target.value)}
                 />
                 <input
                   className="border rounded-xl px-3 py-2"
@@ -810,7 +836,7 @@ export function StockPage() {
                     <div><span className="text-slate-500">Fornecedor:</span> {locatedItem.supplier_name || "-"}</div>
                     <div>
                       <span className="text-slate-500">Posição atual:</span>{" "}
-                      {locatedItem.allocation_position_code || `${locatedItem.local || "-"} ${locatedItem.street || ""}`.trim()}
+                      {locatedItem.allocation_position_code ? `${dottedPosition(locatedItem.allocation_position_code)} - Palete - ${locatedItem.allocation_pallet_code || "-"}` : formatStoredPosition(locatedItem.local, locatedItem.street)}
                     </div>
                   </div>
                 </div>
@@ -823,7 +849,7 @@ export function StockPage() {
                     <thead>
                       <tr>
                         <th className="py-2">Posi??o</th>
-                        <th>Pallet</th>
+                        <th>Palete</th>
                         <th>Qtd</th>
                         <th>Modo</th>
                         <th>Operador</th>
@@ -833,7 +859,7 @@ export function StockPage() {
                     <tbody>
                       {locatedAllocations.map((allocation) => (
                         <tr key={allocation.id}>
-                          <td className="py-2">{allocation.position_code} - {allocation.position_label}</td>
+                          <td className="py-2">{dottedPosition(allocation.position_code)}</td>
                           <td>{allocation.pallet_code || "-"}</td>
                           <td>{Number(allocation.quantity)}</td>
                           <td>{allocation.allocation_mode === "pallet" ? "Pallet completo" : "Produto"}</td>
@@ -855,9 +881,8 @@ export function StockPage() {
                       <th>C?digo de barras</th>
                       <th>Cod Forn.</th>
                       <th>Fornecedor</th>
-                      <th>Local</th>
-                      <th>Rua</th>
-                      <th>Alocacao Atual</th>
+                      <th>Posi??o</th>
+                      <th>Palete</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -868,14 +893,13 @@ export function StockPage() {
                         <td>{item.barcode || "-"}</td>
                         <td>{item.supplier_code || "-"}</td>
                         <td>{item.supplier_name || "-"}</td>
-                        <td>{item.local || "-"}</td>
-                        <td>{item.street || "-"}</td>
-                        <td>{item.allocation_position_code || "-"}</td>
+                        <td>{item.allocation_position_code ? dottedPosition(item.allocation_position_code) : formatStoredPosition(item.local, item.street)}</td>
+                        <td>{item.allocation_pallet_code || "-"}</td>
                       </tr>
                     ))}
                     {!products.length && (
                       <tr>
-                        <td className="py-3 text-slate-500" colSpan={8}>Nenhum produto encontrado.</td>
+                        <td className="py-3 text-slate-500" colSpan={7}>Nenhum produto encontrado.</td>
                       </tr>
                     )}
                   </tbody>
@@ -1059,8 +1083,8 @@ export function StockPage() {
                         <th>Hora</th>
                         <th>C?d. produto</th>
                         <th>C?digo de barras</th>
-                        <th>Local</th>
-                        <th>Rua</th>
+                        <th>Posi??o</th>
+                        <th>Palete</th>
                         <th>Qtd 1</th>
                         <th>Validade 1</th>
                         <th>Qtd 2</th>
@@ -1076,12 +1100,12 @@ export function StockPage() {
                           <td>{item.entry_time || "-"}</td>
                           <td>{item.product_code || "-"}</td>
                           <td>{item.barcode || "-"}</td>
-                          <td>{item.local || "-"}</td>
-                          <td>{item.street || "-"}</td>
+                          <td>{item.allocation_position_code ? dottedPosition(item.allocation_position_code) : formatStoredPosition(item.local, item.street)}</td>
+                          <td>{item.allocation_pallet_code || "-"}</td>
                           <td>{item.quantity_1 ?? "-"}</td>
-                          <td>{item.expiry_1 ? new Date(`${item.expiry_1}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
+                          <td>{formatDateOnly(item.expiry_1)}</td>
                           <td>{item.quantity_2 ?? "-"}</td>
-                          <td>{item.expiry_2 ? new Date(`${item.expiry_2}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
+                          <td>{formatDateOnly(item.expiry_2)}</td>
                           <td>{item.user_name || "-"}</td>
                         </tr>
                       ))}
@@ -1151,8 +1175,8 @@ export function StockPage() {
                         <th>Data</th>
                         <th>C?d. produto</th>
                         <th>C?digo de barras</th>
-                        <th>Local</th>
-                        <th>Rua</th>
+                        <th>Posi??o</th>
+                        <th>Palete</th>
                         <th>Quantidade</th>
                         <th>Validade</th>
                         <th>Usu?rio</th>
@@ -1165,10 +1189,10 @@ export function StockPage() {
                           <td>{item.work_date ? new Date(`${item.work_date}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
                           <td>{item.product_code || "-"}</td>
                           <td>{item.barcode || "-"}</td>
-                          <td>{item.local || "-"}</td>
-                          <td>{item.street || "-"}</td>
+                          <td>{item.allocation_position_code ? dottedPosition(item.allocation_position_code) : formatStoredPosition(item.local, item.street)}</td>
+                          <td>{item.allocation_pallet_code || "-"}</td>
                           <td>{item.quantity ?? "-"}</td>
-                          <td>{item.expiry_date ? new Date(`${item.expiry_date}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
+                          <td>{formatDateOnly(item.expiry_date)}</td>
                           <td>{item.user_name || "-"}</td>
                         </tr>
                       ))}
@@ -1338,7 +1362,7 @@ export function StockPage() {
                         <th>Descri??o</th>
                         <th>Qtd</th>
                         <th>Posi??o</th>
-                        <th>Pallet</th>
+                        <th>Palete</th>
                         <th>Modo</th>
                         <th>Operador</th>
                         <th>Atualizado</th>
@@ -1351,7 +1375,7 @@ export function StockPage() {
                           <td className="py-2">{row.product_code}</td>
                           <td>{row.description}</td>
                           <td>{Number(row.quantity)}</td>
-                          <td>{row.position_code}</td>
+                          <td>{dottedPosition(row.position_code)}</td>
                           <td>{row.pallet_code || "-"}</td>
                           <td>{row.allocation_mode === "pallet" ? "Pallet completo" : "Produto"}</td>
                           <td>{row.operator_name}</td>
@@ -1384,7 +1408,7 @@ export function StockPage() {
                       <th>Qtd</th>
                       <th>Origem</th>
                       <th>Destino</th>
-                      <th>Pallet</th>
+                      <th>Palete</th>
                       <th>Operador</th>
                     </tr>
                   </thead>
