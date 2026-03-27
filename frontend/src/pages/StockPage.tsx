@@ -153,6 +153,16 @@ function formatDateOnly(value?: string | null) {
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleDateString("pt-BR");
 }
 
+function formatLocalDate(value?: string | null) {
+  if (!value) return "-";
+  const raw = String(value).trim();
+  if (!raw) return "-";
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00`) : new Date(raw);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString("pt-BR");
+}
+
 function dottedPosition(code?: string | null) {
   if (!code) return "-";
   const digits = digitsOnly(code);
@@ -250,6 +260,14 @@ export function StockPage() {
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
 
   const periodLabel = useMemo(() => `${isoDaysAgo(30)} até ${isoToday()}`, []);
+  const trendData = useMemo(
+    () =>
+      (dashboard?.trend || []).map((item) => ({
+        ...item,
+        work_date_label: formatDateOnly(item.work_date)
+      })),
+    [dashboard]
+  );
 
   async function loadBase(pageOverride?: number, pageSizeOverride?: number) {
     const currentPage = pageOverride ?? basePage;
@@ -644,12 +662,12 @@ export function StockPage() {
               <p className="text-lg font-semibold">{baseTotal}</p>
             </article>
             <article className="workspace-kpi-card">
-              <p className="text-sm text-slate-500">Abastecimentos</p>
-              <p className="text-lg font-semibold">{replenishments.length}</p>
+              <p className="text-sm text-slate-500">Saídas por Abastecimento</p>
+              <p className="text-lg font-semibold">{Number(dashboard?.cards.total_exits || 0).toFixed(2)}</p>
             </article>
             <article className="workspace-kpi-card">
-              <p className="text-sm text-slate-500">Validades</p>
-              <p className="text-lg font-semibold">{expirations.length}</p>
+              <p className="text-sm text-slate-500">Entradas por Validade</p>
+              <p className="text-lg font-semibold">{Number(dashboard?.cards.total_entries || 0).toFixed(2)}</p>
             </article>
           </div>
         </div>
@@ -695,8 +713,8 @@ export function StockPage() {
                 <div className="workspace-kpi-card h-72">
                   <h3 className="font-semibold mb-2">Tendência diária</h3>
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={dashboard?.trend || []}>
-                      <XAxis dataKey="work_date" />
+                    <LineChart data={trendData}>
+                      <XAxis dataKey="work_date_label" />
                       <YAxis />
                       <Tooltip />
                       <Line dataKey="entries" stroke="#0f766e" name="Entradas" />
@@ -752,7 +770,7 @@ export function StockPage() {
                     <tbody>
                       {activityLogs.map((item) => (
                         <tr key={item.id} className="border-b">
-                          <td className="py-2">{item.work_date ? new Date(`${item.work_date}T00:00:00`).toLocaleDateString("pt-BR") : "-"}</td>
+                          <td className="py-2">{formatLocalDate(item.work_date)}</td>
                           <td>{item.movement_type === "entry" ? "Entrada" : "Saída"}</td>
                           <td>{item.activity_type === "validade" ? "Validade" : "Abastecimento"}</td>
                           <td>{item.product_code}</td>
