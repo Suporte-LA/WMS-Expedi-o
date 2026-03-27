@@ -112,6 +112,9 @@ export function StockPage() {
   const [products, setProducts] = useState<StockBaseProduct[]>([]);
   const [suppliers, setSuppliers] = useState<string[]>([]);
   const [imports, setImports] = useState<StockBaseImport[]>([]);
+  const [basePage, setBasePage] = useState(1);
+  const [basePageSize, setBasePageSize] = useState(100);
+  const [baseTotal, setBaseTotal] = useState(0);
   const [locatedItem, setLocatedItem] = useState<StockBaseProduct | null>(null);
   const [dashboardFrom, setDashboardFrom] = useState(isoDaysAgo(30));
   const [dashboardTo, setDashboardTo] = useState(isoToday());
@@ -152,8 +155,10 @@ export function StockPage() {
 
   const periodLabel = useMemo(() => `${isoDaysAgo(30)} ate ${isoToday()}`, []);
 
-  async function loadBase() {
-    const params = new URLSearchParams({ page: "1", pageSize: "200" });
+  async function loadBase(pageOverride?: number, pageSizeOverride?: number) {
+    const currentPage = pageOverride ?? basePage;
+    const currentPageSize = pageSizeOverride ?? basePageSize;
+    const params = new URLSearchParams({ page: String(currentPage), pageSize: String(currentPageSize) });
     if (supplierFilter.trim()) params.set("supplier", supplierFilter.trim());
     if (streetFilter.trim()) params.set("street", streetFilter.trim());
     if (searchFilter.trim()) params.set("search", searchFilter.trim());
@@ -163,6 +168,8 @@ export function StockPage() {
     setProducts(baseRes.data.items || []);
     setSuppliers(baseRes.data.suppliers || []);
     setImports(importsRes.data.items || []);
+    setBaseTotal(Number(baseRes.data.total || 0));
+    setBasePage(Number(baseRes.data.page || currentPage));
   }
 
   async function loadDashboard() {
@@ -330,8 +337,9 @@ export function StockPage() {
   async function onFilterBase(e: FormEvent) {
     e.preventDefault();
     setLocatedItem(null);
+    setLocatedAllocations([]);
     setError("");
-    await loadBase().catch((err: any) => {
+    await loadBase(1).catch((err: any) => {
       setError(err?.response?.data?.message || "Falha ao carregar base do estoque.");
     });
   }
@@ -539,7 +547,7 @@ export function StockPage() {
             </article>
             <article className="workspace-kpi-card">
               <p className="text-sm text-slate-500">Produtos na base</p>
-              <p className="text-lg font-semibold">{products.length}</p>
+              <p className="text-lg font-semibold">{baseTotal}</p>
             </article>
             <article className="workspace-kpi-card">
               <p className="text-sm text-slate-500">Abastecimentos</p>
@@ -702,6 +710,9 @@ export function StockPage() {
                     placeholder="Bipar caixa / codigo de barras"
                     value={scanValue}
                     onChange={(e) => setScanValue(e.target.value)}
+                    onBlur={() => {
+                      if (scanValue.trim()) resolveProduct(scanValue, "locate");
+                    }}
                   />
                   <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("localizar")}>
                     Escanear
@@ -795,6 +806,46 @@ export function StockPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm text-slate-600">
+                <div className="flex items-center gap-2">
+                  <span>Mostrar</span>
+                  <select
+                    className="border rounded-lg px-2 py-1"
+                    value={basePageSize}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      setBasePageSize(next);
+                      setBasePage(1);
+                      void loadBase(1, next);
+                    }}
+                  >
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={200}>200</option>
+                    <option value={500}>500</option>
+                  </select>
+                  <span>de {baseTotal} produtos</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className={softButtonClass("rounded-lg px-3 py-1")}
+                    disabled={basePage <= 1}
+                    onClick={() => void loadBase(basePage - 1)}
+                  >
+                    Anterior
+                  </button>
+                  <span>Pagina {basePage}</span>
+                  <button
+                    type="button"
+                    className={softButtonClass("rounded-lg px-3 py-1")}
+                    disabled={basePage * basePageSize >= baseTotal}
+                    onClick={() => void loadBase(basePage + 1)}
+                  >
+                    Proxima
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -1076,6 +1127,9 @@ export function StockPage() {
                     placeholder="Bipar produto / codigo de barras"
                     value={allocationForm.scannedCode}
                     onChange={(e) => setAllocationForm((prev) => ({ ...prev, scannedCode: e.target.value }))}
+                    onBlur={() => {
+                      if (allocationForm.scannedCode.trim()) resolveProduct(allocationForm.scannedCode, "alocacao");
+                    }}
                   />
                   <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("alocacao")}>
                     Escanear
