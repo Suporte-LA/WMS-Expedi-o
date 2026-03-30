@@ -115,10 +115,10 @@ export function ErrorReportsPage() {
           </ResponsiveContainer>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm h-72">
-          <h3 className="font-semibold mb-2">Erros por conferente</h3>
+          <h3 className="font-semibold mb-2">Erros por usuário que cometeu</h3>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={dash?.byConferente || []}>
-              <XAxis dataKey="conferente_name" />
+            <BarChart data={dash?.byUser || []}>
+              <XAxis dataKey="user_name" />
               <YAxis />
               <Tooltip />
               <Bar dataKey="total" fill="#0f766e" />
