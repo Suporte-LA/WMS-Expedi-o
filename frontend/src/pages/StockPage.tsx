@@ -199,6 +199,25 @@ function formatStoredPosition(local?: string | null, street?: string | null) {
   return dottedPosition(formatPositionCode(parsed));
 }
 
+function resolveDisplayedPosition(data: {
+  allocation_position_code?: string | null;
+  allocation_position_label?: string | null;
+  local?: string | null;
+  street?: string | null;
+}) {
+  if (data.allocation_position_code) return dottedPosition(data.allocation_position_code);
+  if (data.allocation_position_label) {
+    const parsed = parsePositionFields(data.allocation_position_label, data.allocation_position_label);
+    const fromLabel = formatPositionCode(parsed);
+    if (fromLabel) return dottedPosition(fromLabel);
+  }
+  return formatStoredPosition(data.local, data.street);
+}
+
+function resolveDisplayedPallet(palletCode?: string | null) {
+  return palletCode?.trim() ? palletCode.trim() : "-";
+}
+
 function parsePositionFields(local?: string | null, street?: string | null): PositionFields {
   const combined = `${local || ""} ${street || ""}`.trim();
   const read = (pattern: RegExp) => combined.match(pattern)?.[1] || "";
@@ -862,7 +881,7 @@ export function StockPage() {
 
           {activeTab === "localizar" && (
             <div className="space-y-4">
-              <form onSubmit={onFilterBase} className="grid md:grid-cols-7 gap-3">
+              <form onSubmit={onFilterBase} className="grid md:grid-cols-7 gap-3 items-stretch">
                 <select className="border rounded-xl px-3 py-2" value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}>
                   <option value="">Todos os fornecedores</option>
                   {suppliers.map((supplier) => (
@@ -887,9 +906,9 @@ export function StockPage() {
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                 />
-                <div className="md:col-span-2 flex gap-2">
+                <div className="md:col-span-2 flex gap-2 min-w-0">
                   <input
-                    className="border rounded-xl px-3 py-2 flex-1"
+                    className="border rounded-xl px-3 py-2 flex-1 min-w-0"
                     placeholder="Bipar caixa / codigo de barras"
                     value={scanValue}
                     onChange={(e) => setScanValue(e.target.value)}
@@ -897,14 +916,14 @@ export function StockPage() {
                       if (scanValue.trim()) resolveProduct(scanValue, "locate");
                     }}
                   />
-                  <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("localizar")}>
+                  <button type="button" className={softButtonClass("min-w-[110px] shrink-0")} onClick={() => setScannerTarget("localizar")}>
                     Escanear
                   </button>
-                  <button type="button" className={softButtonClass()} onClick={() => resolveProduct(scanValue, "locate")}>
+                  <button type="button" className={softButtonClass("min-w-[110px] shrink-0")} onClick={() => resolveProduct(scanValue, "locate")}>
                     Localizar
                   </button>
                 </div>
-                <button type="submit" className={primaryButtonClass("px-5")}>
+                <button type="submit" className={primaryButtonClass("px-5 min-w-[140px]")}>
                   Filtrar base
                 </button>
               </form>
@@ -919,7 +938,7 @@ export function StockPage() {
                     <div><span className="text-slate-500">Fornecedor:</span> {locatedItem.supplier_name || "-"}</div>
                     <div>
                       <span className="text-slate-500">Posição atual:</span>{" "}
-                      {locatedItem.allocation_position_code ? `${dottedPosition(locatedItem.allocation_position_code)} - Palete - ${locatedItem.allocation_pallet_code || "-"}` : formatStoredPosition(locatedItem.local, locatedItem.street)}
+                      {`${resolveDisplayedPosition(locatedItem)} - Palete - ${resolveDisplayedPallet(locatedItem.allocation_pallet_code)}`}
                     </div>
                   </div>
                 </div>
@@ -942,8 +961,8 @@ export function StockPage() {
                     <tbody>
                       {locatedAllocations.map((allocation) => (
                         <tr key={allocation.id}>
-                          <td className="py-2">{dottedPosition(allocation.position_code)}</td>
-                          <td>{allocation.pallet_code || "-"}</td>
+                          <td className="py-2">{resolveDisplayedPosition(allocation)}</td>
+                          <td>{resolveDisplayedPallet(allocation.pallet_code)}</td>
                           <td>{Number(allocation.quantity)}</td>
                           <td>{allocation.allocation_mode === "pallet" ? "Pallet completo" : "Produto"}</td>
                           <td>{allocation.operator_name}</td>
@@ -976,8 +995,8 @@ export function StockPage() {
                         <td>{item.barcode || "-"}</td>
                         <td>{item.supplier_code || "-"}</td>
                         <td>{item.supplier_name || "-"}</td>
-                        <td>{item.allocation_position_code ? dottedPosition(item.allocation_position_code) : formatStoredPosition(item.local, item.street)}</td>
-                        <td>{item.allocation_pallet_code || "-"}</td>
+                        <td>{resolveDisplayedPosition(item)}</td>
+                        <td>{resolveDisplayedPallet(item.allocation_pallet_code)}</td>
                       </tr>
                     ))}
                     {!products.length && (

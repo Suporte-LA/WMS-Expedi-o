@@ -69,11 +69,11 @@ body {
   }
 
   .workspace-soft-button {
-    @apply rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900;
+    @apply inline-flex min-h-[44px] items-center justify-center whitespace-nowrap rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900;
   }
 
   .workspace-primary-button {
-    @apply rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50;
+    @apply inline-flex min-h-[44px] items-center justify-center whitespace-nowrap rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-50;
   }
 
   .workspace-kpi-card {
