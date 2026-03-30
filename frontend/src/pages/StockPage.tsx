@@ -166,7 +166,32 @@ function formatLocalDate(value?: string | null) {
 function dottedPosition(code?: string | null) {
   if (!code) return "-";
   const digits = digitsOnly(code);
-  return digits ? digits.match(/.{1,2}/g)?.join(".") || digits : "-";
+  if (!digits) return "-";
+
+  const normalized =
+    digits.length === 9
+      ? {
+          shed: digits.slice(0, 1).padStart(2, "0"),
+          street: digits.slice(1, 3).padStart(2, "0"),
+          building: digits.slice(3, 5).padStart(2, "0"),
+          apartment: digits.slice(5, 7).padStart(2, "0"),
+          palletPosition: digits.slice(7, 9).padStart(2, "0")
+        }
+      : {
+          shed: digits.slice(0, 2).padStart(2, "0"),
+          street: digits.slice(2, 4).padStart(2, "0"),
+          building: digits.slice(4, 6).padStart(2, "0"),
+          apartment: digits.slice(6, 8).padStart(2, "0"),
+          palletPosition: digits.slice(8, 10).padStart(2, "0")
+        };
+
+  return [
+    normalized.shed,
+    normalized.street,
+    normalized.building,
+    normalized.apartment,
+    normalized.palletPosition
+  ].join(".");
 }
 
 function formatStoredPosition(local?: string | null, street?: string | null) {
