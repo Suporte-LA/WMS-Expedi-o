@@ -149,6 +149,15 @@ type ImportedBaseProduct = {
   street: string | null;
 };
 
+type ImportedPositionRow = {
+  sheetName: string;
+  productCode: string;
+  description: string;
+  barcode: string | null;
+  streetLabel: string | null;
+  positionCode: string;
+};
+
 function parseStockBase(buffer: Buffer): ImportedBaseProduct[] {
   const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -186,6 +195,51 @@ function parseStockBase(buffer: Buffer): ImportedBaseProduct[] {
       };
     })
     .filter((row) => row.productCode && row.description);
+}
+
+function parsePositionCode(positionRaw: string) {
+  const digits = digitsOnly(positionRaw);
+  if (digits.length !== 9) return null;
+
+  return {
+    shed: digits.slice(0, 1),
+    street: digits.slice(1, 3),
+    building: digits.slice(3, 5),
+    apartment: digits.slice(5, 7),
+    palletPosition: digits.slice(7, 9)
+  };
+}
+
+function parseStockPositions(buffer: Buffer): ImportedPositionRow[] {
+  const workbook = XLSX.read(buffer, { type: "buffer", raw: false });
+  const allRows: ImportedPositionRow[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+    for (const row of rows) {
+      const productCode = textLike(pickField(row, ["CODIGO", "CÓDIGO", "Codigo", "Codigo Produto", "Cod Produto"]));
+      const description = textLike(pickField(row, ["DESCRICAO", "DESCRIÇÃO", "Descricao", "Descrição"]));
+      const barcode = textLike(pickField(row, ["Codigo de barras", "Código de barras", "Codigo Barras", "Código Barras"])) || null;
+      const streetLabel = textLike(pickField(row, ["RUA", "Rua", "Local"])) || null;
+      const positionRaw = textLike(pickField(row, ["POSICAO", "POSIÇÃO", "Posicao", "Posição"]));
+
+      const parsedPosition = parsePositionCode(positionRaw);
+      if (!productCode || !parsedPosition) continue;
+
+      allRows.push({
+        sheetName,
+        productCode,
+        description,
+        barcode,
+        streetLabel,
+        positionCode: digitsOnly(positionRaw)
+      });
+    }
+  }
+
+  return allRows;
 }
 
 async function findBaseProduct(ref: string) {
@@ -686,6 +740,210 @@ stockRouter.post("/import-base", authRequired, upload.single("file"), async (req
       processedRows: rows.length,
       insertedRows: inserted,
       updatedRows: updated
+    }
+  });
+});
+
+stockRouter.post("/import-positions", authRequired, upload.single("file"), async (req: AuthenticatedRequest, res) => {
+  if (!req.file) return res.status(400).json({ message: "Arquivo de posições obrigatório." });
+  if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
+
+  const rows = parseStockPositions(req.file.buffer);
+  if (!rows.length) {
+    return res.status(400).json({
+      message:
+        "Nao encontramos linhas validas. Cabecalhos esperados na planilha de posições: RUA, POSICAO, CODIGO, DESCRICAO, Codigo de barras."
+    });
+  }
+
+  const client = await pool.connect();
+  let inserted = 0;
+  let updated = 0;
+  let rejected = 0;
+
+  try {
+    await client.query("BEGIN");
+
+    for (const row of rows) {
+      const base = await client.query(
+        `
+          SELECT *
+          FROM stock_base_products
+          WHERE product_code = $1
+             OR ($2 IS NOT NULL AND barcode = $2)
+             OR regexp_replace(COALESCE(product_code, ''), '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+             OR ($2 IS NOT NULL AND regexp_replace(COALESCE(barcode, ''), '\\D', '', 'g') = regexp_replace($2, '\\D', '', 'g'))
+          ORDER BY updated_at DESC
+          LIMIT 1
+        `,
+        [row.productCode, row.barcode]
+      );
+
+      const baseRow = base.rows[0];
+      if (!baseRow) {
+        rejected += 1;
+        continue;
+      }
+
+      const parsedPosition = parsePositionCode(row.positionCode);
+      if (!parsedPosition) {
+        rejected += 1;
+        continue;
+      }
+
+      const position = buildAllocationPosition(parsedPosition);
+      const existing = await client.query(
+        `
+          SELECT *
+          FROM stock_allocations
+          WHERE product_code = $1
+          ORDER BY updated_at DESC, created_at DESC
+          LIMIT 1
+        `,
+        [baseRow.product_code]
+      );
+
+      if (existing.rowCount) {
+        await client.query(
+          `
+            UPDATE stock_allocations
+            SET
+              description = $2,
+              barcode = $3,
+              supplier_code = $4,
+              supplier_name = $5,
+              shed = $6,
+              street = $7,
+              building = $8,
+              apartment = $9,
+              pallet_position = $10,
+              position_code = $11,
+              position_label = $12,
+              operator_name = $13,
+              notes = $14,
+              updated_at = now()
+            WHERE id = $1
+          `,
+          [
+            existing.rows[0].id,
+            baseRow.description,
+            baseRow.barcode,
+            baseRow.supplier_code,
+            baseRow.supplier_name,
+            position.shed,
+            position.street,
+            position.building,
+            position.apartment,
+            position.palletPosition,
+            position.positionCode,
+            position.positionLabel,
+            req.user.name,
+            `Importação de posições (${row.sheetName})`
+          ]
+        );
+
+        await client.query(
+          `
+            INSERT INTO stock_allocation_logs (
+              allocation_id, action_type, product_code, description, quantity,
+              previous_position_code, previous_position_label,
+              new_position_code, new_position_label, pallet_code, operator_name, notes
+            )
+            VALUES ($1, 'update', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          `,
+          [
+            existing.rows[0].id,
+            baseRow.product_code,
+            baseRow.description,
+            Number(existing.rows[0].quantity || 1),
+            existing.rows[0].position_code,
+            existing.rows[0].position_label,
+            position.positionCode,
+            position.positionLabel,
+            existing.rows[0].pallet_code || null,
+            req.user.name,
+            `Importação de posições (${row.sheetName})`
+          ]
+        );
+
+        updated += 1;
+      } else {
+        const insertedRow = await client.query(
+          `
+            INSERT INTO stock_allocations (
+              product_code, description, barcode, supplier_code, supplier_name, quantity,
+              shed, street, building, apartment, pallet_position,
+              position_code, position_label, pallet_code, allocation_mode, operator_name, notes
+            )
+            VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9, $10, $11, $12, NULL, 'single', $13, $14)
+            RETURNING *
+          `,
+          [
+            baseRow.product_code,
+            baseRow.description,
+            baseRow.barcode,
+            baseRow.supplier_code,
+            baseRow.supplier_name,
+            position.shed,
+            position.street,
+            position.building,
+            position.apartment,
+            position.palletPosition,
+            position.positionCode,
+            position.positionLabel,
+            req.user.name,
+            `Importação de posições (${row.sheetName})`
+          ]
+        );
+
+        await client.query(
+          `
+            INSERT INTO stock_allocation_logs (
+              allocation_id, action_type, product_code, description, quantity,
+              new_position_code, new_position_label, pallet_code, operator_name, notes
+            )
+            VALUES ($1, 'create', $2, $3, $4, $5, $6, NULL, $7, $8)
+          `,
+          [
+            insertedRow.rows[0].id,
+            baseRow.product_code,
+            baseRow.description,
+            1,
+            position.positionCode,
+            position.positionLabel,
+            req.user.name,
+            `Importação de posições (${row.sheetName})`
+          ]
+        );
+
+        inserted += 1;
+      }
+    }
+
+    await client.query(
+      `
+        INSERT INTO stock_base_imports (
+          filename, processed_rows, inserted_rows, updated_rows, imported_by_user_id, imported_by_name
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [`[posicoes] ${req.file.originalname}`, rows.length, inserted, updated, req.user.id, req.user.name]
+    );
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return res.status(201).json({
+    summary: {
+      processedRows: rows.length,
+      insertedRows: inserted,
+      updatedRows: updated,
+      rejectedRows: rejected
     }
   });
 });

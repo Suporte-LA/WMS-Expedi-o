@@ -205,7 +205,10 @@ export function StockPage() {
 
   const [baseFile, setBaseFile] = useState<File | null>(null);
   const [baseFileBuffer, setBaseFileBuffer] = useState<ArrayBuffer | null>(null);
+  const [positionsFile, setPositionsFile] = useState<File | null>(null);
+  const [positionsFileBuffer, setPositionsFileBuffer] = useState<ArrayBuffer | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importingPositions, setImportingPositions] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -454,6 +457,43 @@ export function StockPage() {
     await loadBase(1).catch((err: any) => {
       setError(err?.response?.data?.message || "Falha ao carregar base do estoque.");
     });
+  }
+
+  async function onImportPositions(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+    if (!positionsFile || !positionsFileBuffer) {
+      setError("Selecione a planilha de posições.");
+      return;
+    }
+
+    setImportingPositions(true);
+    try {
+      const form = new FormData();
+      const snapshot = new File([positionsFileBuffer], positionsFile.name, {
+        type: positionsFile.type || "application/octet-stream",
+        lastModified: Date.now()
+      });
+      form.append("file", snapshot);
+      const { data } = await api.post("/stock/import-positions", form, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      setMessage(
+        `Posições importadas. Processadas: ${data.summary.processedRows}, Inseridas: ${data.summary.insertedRows}, Atualizadas: ${data.summary.updatedRows}, Rejeitadas: ${data.summary.rejectedRows || 0}`
+      );
+      setPositionsFile(null);
+      setPositionsFileBuffer(null);
+      await Promise.all([loadBase(), loadAllocations()]);
+    } catch (err: any) {
+      if (err?.message?.includes("ERR_UPLOAD_FILE_CHANGED")) {
+        setError("O arquivo foi alterado depois da seleção. Escolha a planilha novamente e envie.");
+      } else {
+        setError(err?.response?.data?.message || "Falha ao importar posições do estoque.");
+      }
+    } finally {
+      setImportingPositions(false);
+    }
   }
 
   async function onSubmitReplenishment(e: FormEvent) {
@@ -1002,6 +1042,44 @@ export function StockPage() {
                   <span className="text-sm text-slate-500">{baseFile?.name || "Nenhum arquivo selecionado"}</span>
                   <button type="submit" disabled={importing} className={primaryButtonClass()}>
                     {importing ? "Importando..." : "Importar Base"}
+                  </button>
+                </div>
+              </form>
+
+              <form onSubmit={onImportPositions} className="workspace-kpi-card space-y-3">
+                <h3 className="font-semibold">Importar Posições do Estoque</h3>
+                <p className="text-sm text-slate-600">
+                  Atualiza a posição dos produtos pela planilha de ruas/posições, criando ou movendo alocações sem alterar a base principal.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    id="stock-positions-file"
+                    className="hidden"
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0] || null;
+                      setPositionsFile(file);
+                      if (!file) {
+                        setPositionsFileBuffer(null);
+                        return;
+                      }
+                      try {
+                        const buffer = await file.arrayBuffer();
+                        setPositionsFileBuffer(buffer);
+                      } catch {
+                        setPositionsFile(null);
+                        setPositionsFileBuffer(null);
+                        setError("Não foi possível ler a planilha de posições selecionada.");
+                      }
+                    }}
+                  />
+                  <label htmlFor="stock-positions-file" className={softButtonClass("cursor-pointer")}>
+                    Escolher posições
+                  </label>
+                  <span className="text-sm text-slate-500">{positionsFile?.name || "Nenhum arquivo selecionado"}</span>
+                  <button type="submit" disabled={importingPositions} className={primaryButtonClass()}>
+                    {importingPositions ? "Importando..." : "Importar Posições"}
                   </button>
                 </div>
               </form>
