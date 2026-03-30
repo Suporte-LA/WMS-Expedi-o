@@ -770,9 +770,9 @@ stockRouter.post("/import-positions", authRequired, upload.single("file"), async
           SELECT *
           FROM stock_base_products
           WHERE product_code = $1
-             OR ($2 IS NOT NULL AND barcode = $2)
+             OR ($2::text IS NOT NULL AND barcode = $2::text)
              OR regexp_replace(COALESCE(product_code, ''), '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
-             OR ($2 IS NOT NULL AND regexp_replace(COALESCE(barcode, ''), '\\D', '', 'g') = regexp_replace($2, '\\D', '', 'g'))
+             OR ($2::text IS NOT NULL AND regexp_replace(COALESCE(barcode, ''), '\\D', '', 'g') = regexp_replace($2::text, '\\D', '', 'g'))
           ORDER BY updated_at DESC
           LIMIT 1
         `,
