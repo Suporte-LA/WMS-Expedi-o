@@ -209,7 +209,8 @@ errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"
   const parsed = z
     .object({
       from: z.string(),
-      to: z.string()
+      to: z.string(),
+      user: z.string().optional()
     })
     .safeParse(req.query);
 
@@ -217,37 +218,46 @@ errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"
     return res.status(400).json({ message: "Query invalida." });
   }
 
-  const { from, to } = parsed.data;
+  const { from, to, user } = parsed.data;
+  const values: unknown[] = [from, to];
+  const userFilter = user?.trim() ? ` AND COALESCE(descended_user_name, 'Sem usuario') ILIKE $3` : "";
+  if (user?.trim()) {
+    values.push(user.trim());
+  }
+
   const [byProblem, byConferente, byUser] = await Promise.all([
     pool.query(
       `
         SELECT problem_type, COUNT(*)::int AS total
         FROM error_reports
         WHERE report_date BETWEEN $1::date AND $2::date
+        ${userFilter}
         GROUP BY problem_type
         ORDER BY total DESC
       `,
-      [from, to]
+      values
     ),
     pool.query(
       `
         SELECT conferente_name, COUNT(*)::int AS total
         FROM error_reports
         WHERE report_date BETWEEN $1::date AND $2::date
+        ${userFilter}
         GROUP BY conferente_name
         ORDER BY total DESC
       `,
-      [from, to]
+      values
     ),
     pool.query(
       `
         SELECT COALESCE(descended_user_name, 'Sem usuario') AS user_name, COUNT(*)::int AS total
         FROM error_reports
         WHERE report_date BETWEEN $1::date AND $2::date
+        ${userFilter}
         GROUP BY COALESCE(descended_user_name, 'Sem usuario')
         ORDER BY total DESC
       `,
-      [from, to]
+      values
     )
   ]);
 

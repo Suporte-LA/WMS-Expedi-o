@@ -36,6 +36,7 @@ type ErrorDash = {
 export function ErrorReportsPage() {
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(isoToday());
+  const [userFilter, setUserFilter] = useState("");
   const [items, setItems] = useState<ErrorRecord[]>([]);
   const [dash, setDash] = useState<ErrorDash | null>(null);
   const [error, setError] = useState("");
@@ -43,9 +44,16 @@ export function ErrorReportsPage() {
   async function loadData() {
     setError("");
     try {
+      const params = new URLSearchParams({ from, to, page: "1", pageSize: "100" });
+      const dashParams = new URLSearchParams({ from, to });
+      if (userFilter.trim()) {
+        params.set("user", userFilter.trim());
+        dashParams.set("user", userFilter.trim());
+      }
+
       const [list, dashboard] = await Promise.all([
-        api.get(`/errors?from=${from}&to=${to}&page=1&pageSize=100`),
-        api.get(`/errors/dashboard?from=${from}&to=${to}`)
+        api.get(`/errors?${params.toString()}`),
+        api.get(`/errors/dashboard?${dashParams.toString()}`)
       ]);
       setItems(list.data.items || []);
       setDash(dashboard.data);
@@ -66,6 +74,7 @@ export function ErrorReportsPage() {
   async function exportXlsx() {
     try {
       const params = new URLSearchParams({ from, to, export: "xlsx" });
+      if (userFilter.trim()) params.set("user", userFilter.trim());
       const response = await api.get(`/errors?${params.toString()}`, { responseType: "blob" });
       const blob = new Blob([response.data], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -92,9 +101,15 @@ export function ErrorReportsPage() {
             Exportar XLSX
           </button>
         </div>
-        <div className="grid md:grid-cols-2 gap-3">
+        <div className="grid md:grid-cols-3 gap-3">
         <input className="border rounded-xl px-3 py-2" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         <input className="border rounded-xl px-3 py-2" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <input
+          className="border rounded-xl px-3 py-2"
+          placeholder="Filtrar por usuário"
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+        />
         </div>
       </form>
 
