@@ -1,37 +1,11 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, buildApiUrl } from "../lib/api";
 import type { MontagemSpRecord, User } from "../types";
 
-type PauseEvent = {
-  startIso: string;
-  endIso: string;
-  start: string;
-  end: string;
-  reason: string;
-  minutes: number;
-};
-
 type HelperOption = {
   id: string;
   name: string;
-};
-
-type EditFormState = {
-  workDate: string;
-  startTime: string;
-  endTime: string;
-  stopsCount: string;
-  pauseMinutes: string;
-  pauseReason: string;
-  palletsCount: string;
-  loadValue: string;
-  volume: string;
-  weightKg: string;
-  isoporQty: string;
-  hasHelper: boolean;
-  helperName: string;
-  notes: string;
 };
 
 function isoToday() {
@@ -65,35 +39,10 @@ function formatTimer(seconds: number) {
   return `${two(hh)}:${two(mm)}:${two(ss)}`;
 }
 
-function calculateElapsedSeconds(startIso: string, endIso: string, pauses: PauseEvent[]) {
+function calculateElapsedSeconds(startIso: string, endIso: string) {
   const startMs = new Date(startIso).getTime();
   const endMs = new Date(endIso).getTime();
-  const pauseMs = pauses.reduce((acc, event) => acc + event.minutes * 60 * 1000, 0);
-  return Math.max(0, Math.floor((endMs - startMs - pauseMs) / 1000));
-}
-
-function stringValue(value: unknown) {
-  if (value === null || value === undefined) return "";
-  return String(value);
-}
-
-function toEditForm(item: MontagemSpRecord): EditFormState {
-  return {
-    workDate: item.work_date?.slice(0, 10) || "",
-    startTime: item.start_time || "",
-    endTime: item.end_time || "",
-    stopsCount: stringValue(item.stops_count),
-    pauseMinutes: stringValue(item.pause_minutes),
-    pauseReason: item.pause_reason || "",
-    palletsCount: stringValue(item.pallets_count),
-    loadValue: stringValue(item.load_value),
-    volume: stringValue(item.volume),
-    weightKg: stringValue(item.weight_kg),
-    isoporQty: stringValue(item.isopor_qty),
-    hasHelper: Boolean(item.has_helper),
-    helperName: item.helper_name || "",
-    notes: item.notes || ""
-  };
+  return Math.max(0, Math.floor((endMs - startMs) / 1000));
 }
 
 export function MontagemSpPage({ user }: { user: User }) {
@@ -102,9 +51,6 @@ export function MontagemSpPage({ user }: { user: User }) {
   const [sessionEndIso, setSessionEndIso] = useState<string | null>(null);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const [pauseStartIso, setPauseStartIso] = useState<string | null>(null);
-  const [currentPauseReason, setCurrentPauseReason] = useState("");
-  const [pauseEvents, setPauseEvents] = useState<PauseEvent[]>([]);
 
   const [palletsCount, setPalletsCount] = useState<number | "">("");
   const [loadValue, setLoadValue] = useState<number | "">("");
@@ -125,20 +71,17 @@ export function MontagemSpPage({ user }: { user: User }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditFormState | null>(null);
-  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     if (!isRunning || !sessionStartIso) return;
 
     const id = window.setInterval(() => {
       const endIso = new Date().toISOString();
-      setTimerSeconds(calculateElapsedSeconds(sessionStartIso, endIso, pauseEvents));
+      setTimerSeconds(calculateElapsedSeconds(sessionStartIso, endIso));
     }, 1000);
 
     return () => window.clearInterval(id);
-  }, [isRunning, sessionStartIso, pauseEvents]);
+  }, [isRunning, sessionStartIso]);
 
   useEffect(() => {
     async function loadHelpers() {
@@ -164,8 +107,6 @@ export function MontagemSpPage({ user }: { user: User }) {
     loadList();
   }, []);
 
-  const pauseMinutes = useMemo(() => pauseEvents.reduce((acc, event) => acc + event.minutes, 0), [pauseEvents]);
-  const stopsCount = pauseEvents.length;
   const completionUnlocked = Boolean(photo && sessionEndIso);
 
   function startSession() {
@@ -180,44 +121,7 @@ export function MontagemSpPage({ user }: { user: User }) {
     setSessionEndIso(null);
     setTimerSeconds(0);
     setIsRunning(true);
-    setPauseStartIso(null);
-    setCurrentPauseReason("");
-    setPauseEvents([]);
     setPhoto(null);
-  }
-
-  function startPause() {
-    setError("");
-    if (!sessionStartIso || !isRunning) return;
-    const nowIso = new Date().toISOString();
-    setPauseStartIso(nowIso);
-    setIsRunning(false);
-  }
-
-  function continueSession() {
-    setError("");
-    if (!pauseStartIso) return;
-    if (!currentPauseReason.trim()) {
-      setError("Informe o motivo da parada antes de continuar.");
-      return;
-    }
-    const endIso = new Date().toISOString();
-    const minutes = Math.max(0, Math.round((new Date(endIso).getTime() - new Date(pauseStartIso).getTime()) / 60000));
-
-    setPauseEvents((prev) => [
-      ...prev,
-      {
-        startIso: pauseStartIso,
-        endIso,
-        start: formatDateTimeFromIso(pauseStartIso),
-        end: formatDateTimeFromIso(endIso),
-        reason: currentPauseReason.trim(),
-        minutes
-      }
-    ]);
-    setCurrentPauseReason("");
-    setPauseStartIso(null);
-    setIsRunning(true);
   }
 
   function resetForm() {
@@ -225,9 +129,6 @@ export function MontagemSpPage({ user }: { user: User }) {
     setSessionEndIso(null);
     setTimerSeconds(0);
     setIsRunning(false);
-    setPauseStartIso(null);
-    setCurrentPauseReason("");
-    setPauseEvents([]);
     setPalletsCount("");
     setLoadValue("");
     setVolume("");
@@ -248,14 +149,10 @@ export function MontagemSpPage({ user }: { user: User }) {
       setError("Clique em Iniciar antes de tirar a foto.");
       return;
     }
-    if (pauseStartIso) {
-      setError("Existe uma parada em aberto. Informe o motivo e clique em Continuar antes da foto.");
-      return;
-    }
     const endIso = new Date().toISOString();
     setSessionEndIso(endIso);
     setIsRunning(false);
-    setTimerSeconds(calculateElapsedSeconds(sessionStartIso, endIso, pauseEvents));
+    setTimerSeconds(calculateElapsedSeconds(sessionStartIso, endIso));
     setMessage("Foto registrada. Agora preencha os dados finais ou use Registrar depois.");
   }
 
@@ -265,10 +162,6 @@ export function MontagemSpPage({ user }: { user: User }) {
 
     if (!sessionStartIso) {
       setError("Clique em Iniciar para marcar o horario de inicio.");
-      return;
-    }
-    if (pauseStartIso) {
-      setError("Existe uma parada em aberto. Informe o motivo e clique em Continuar.");
       return;
     }
     if (!photo || !sessionEndIso) {
@@ -287,19 +180,9 @@ export function MontagemSpPage({ user }: { user: User }) {
       form.append("loaderUserName", user.name);
       form.append("startTime", formatTimeFromDate(new Date(sessionStartIso)));
       form.append("endTime", formatTimeFromDate(new Date(sessionEndIso)));
-      form.append("stopsCount", String(stopsCount));
-      form.append("pauseMinutes", String(pauseMinutes));
-      form.append(
-        "pauseEvents",
-        JSON.stringify(
-          pauseEvents.map((event) => ({
-            start: event.start,
-            end: event.end,
-            reason: event.reason,
-            minutes: event.minutes
-          }))
-        )
-      );
+      form.append("stopsCount", "0");
+      form.append("pauseMinutes", "0");
+      form.append("pauseEvents", "[]");
       if (mode === "complete") {
         if (palletsCount !== "") form.append("palletsCount", String(palletsCount));
         if (loadValue !== "") form.append("loadValue", String(loadValue));
@@ -313,7 +196,7 @@ export function MontagemSpPage({ user }: { user: User }) {
       form.append("photo", photo);
 
       await api.post("/montagem-sp", form, { headers: { "Content-Type": "multipart/form-data" } });
-      setMessage(mode === "later" ? "Montagem SP registrada sem os informes finais. Use Editar depois." : "Montagem SP registrada com sucesso.");
+      setMessage(mode === "later" ? "Montagem SP registrada sem os informes finais." : "Montagem SP registrada com sucesso.");
       resetForm();
       await loadList();
     } catch (err: any) {
@@ -349,56 +232,12 @@ export function MontagemSpPage({ user }: { user: User }) {
     }
   }
 
-  function startEdit(item: MontagemSpRecord) {
-    setEditingId(item.id);
-    setEditForm(toEditForm(item));
-    setError("");
-    setMessage("");
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setEditForm(null);
-  }
-
-  async function saveEdit() {
-    if (!editingId || !editForm) return;
-    setSavingEdit(true);
-    setError("");
-    setMessage("");
-    try {
-      await api.patch(`/montagem-sp/${editingId}`, {
-        workDate: editForm.workDate,
-        startTime: editForm.startTime || null,
-        endTime: editForm.endTime || null,
-        stopsCount: editForm.stopsCount === "" ? 0 : Number(editForm.stopsCount),
-        pauseMinutes: editForm.pauseMinutes === "" ? 0 : Number(editForm.pauseMinutes),
-        pauseReason: editForm.pauseReason || null,
-        palletsCount: editForm.palletsCount === "" ? null : Number(editForm.palletsCount),
-        loadValue: editForm.loadValue === "" ? null : Number(editForm.loadValue),
-        volume: editForm.volume === "" ? null : Number(editForm.volume),
-        weightKg: editForm.weightKg === "" ? null : Number(editForm.weightKg),
-        isoporQty: editForm.isoporQty === "" ? null : Number(editForm.isoporQty),
-        hasHelper: editForm.hasHelper,
-        helperName: editForm.hasHelper ? editForm.helperName : null,
-        notes: editForm.notes || null
-      });
-      setMessage("Registro de Montagem SP atualizado.");
-      cancelEdit();
-      await loadList();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Falha ao atualizar montagem.");
-    } finally {
-      setSavingEdit(false);
-    }
-  }
-
   return (
     <section className="space-y-4">
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold">Montagem SP</h2>
-          <p className="text-sm text-slate-600">Fluxo: Iniciar, registrar paradas, tirar a foto para finalizar o tempo e depois completar os informes ou registrar depois.</p>
+          <p className="text-sm text-slate-600">Fluxo: Iniciar, tirar a foto para finalizar o tempo e depois completar os informes ou registrar depois.</p>
         </div>
 
         <div className="grid md:grid-cols-4 gap-3">
@@ -425,56 +264,12 @@ export function MontagemSpPage({ user }: { user: User }) {
           >
             Iniciar
           </button>
-          <button
-            type="button"
-            onClick={startPause}
-            disabled={!sessionStartIso || !isRunning}
-            className="rounded-xl bg-amber-600 text-white px-4 py-2 font-semibold disabled:opacity-50"
-          >
-            Adicionar parada
-          </button>
-          <button
-            type="button"
-            onClick={continueSession}
-            disabled={!pauseStartIso}
-            className="rounded-xl bg-sky-700 text-white px-4 py-2 font-semibold disabled:opacity-50"
-          >
-            Continuar
-          </button>
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-slate-600 md:col-span-3">
             <p>Inicio: {sessionStartIso ? formatDateTimeFromIso(sessionStartIso) : "-"}</p>
             <p>Termino: {sessionEndIso ? formatDateTimeFromIso(sessionEndIso) : "Aguardando foto"}</p>
-            <p>Status: {pauseStartIso ? "Em parada" : isRunning ? "Em andamento" : sessionEndIso ? "Finalizado por foto" : sessionStartIso ? "Aguardando foto" : "Nao iniciado"}</p>
+            <p>Status: {isRunning ? "Em andamento" : sessionEndIso ? "Finalizado por foto" : sessionStartIso ? "Aguardando foto" : "Nao iniciado"}</p>
           </div>
         </div>
-
-        {pauseStartIso && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2">
-            <p className="text-sm font-semibold text-amber-800">Parada iniciada em {formatDateTimeFromIso(pauseStartIso)}</p>
-            <label className="text-sm block">
-              <span className="block mb-1 text-slate-600">Motivo da parada</span>
-              <input
-                className="border rounded-xl px-3 py-2 w-full"
-                value={currentPauseReason}
-                onChange={(e) => setCurrentPauseReason(e.target.value)}
-                placeholder="Ex: aguardando liberacao de doca"
-              />
-            </label>
-          </div>
-        )}
-
-        {pauseEvents.length > 0 && (
-          <div className="rounded-xl border p-3">
-            <p className="font-semibold mb-2">Paradas registradas</p>
-            <ul className="text-sm space-y-1">
-              {pauseEvents.map((event, index) => (
-                <li key={`${event.startIso}-${index}`}>
-                  {index + 1}. {event.start} ate {event.end} ({event.minutes} min) - {event.reason}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         <div className="grid md:grid-cols-2 gap-3">
           <div className="flex items-end gap-2">
@@ -551,8 +346,6 @@ export function MontagemSpPage({ user }: { user: User }) {
         )}
 
         <div className="text-sm text-slate-600">
-          <p>Paradas: {stopsCount}</p>
-          <p>Total parado: {pauseMinutes} min</p>
           {sessionEndIso ? <p>Termino: {formatDateTimeFromIso(sessionEndIso)}</p> : null}
         </div>
 
@@ -592,121 +385,19 @@ export function MontagemSpPage({ user }: { user: User }) {
               <th>Inicio</th>
               <th>Termino</th>
               <th>Tempo (min)</th>
-              <th>Paradas</th>
-              <th>Volume</th>
-              <th>Peso</th>
-              <th>Isopor</th>
-              <th>Ajudante</th>
               <th>Foto</th>
-              <th>Acao</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
-              <Fragment key={item.id}>
-                <tr className="border-b">
-                  <td className="py-2">{item.work_date?.slice(0, 10)}</td>
-                  <td>{item.loader_user_name}</td>
-                  <td>{item.start_time || "-"}</td>
-                  <td>{item.end_time || "-"}</td>
-                  <td>{item.duration_minutes ?? "-"}</td>
-                  <td>{item.stops_count ?? 0}</td>
-                  <td>{item.volume ?? "-"}</td>
-                  <td>{item.weight_kg ?? "-"}</td>
-                  <td>{item.isopor_qty ?? "-"}</td>
-                  <td>{item.has_helper ? item.helper_name || "SIM" : "NAO"}</td>
-                  <td>{item.photo_path ? <a className="underline" href={buildApiUrl(item.photo_path)} target="_blank" rel="noreferrer">abrir</a> : "-"}</td>
-                  <td>
-                    <button type="button" onClick={() => startEdit(item)} className="rounded-lg border border-slate-300 px-3 py-1 font-semibold">
-                      Editar
-                    </button>
-                  </td>
-                </tr>
-                {editingId === item.id && editForm && (
-                  <tr className="border-b bg-slate-50">
-                    <td colSpan={12} className="p-3">
-                      <div className="grid md:grid-cols-4 gap-3 mb-3">
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Data</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="date" value={editForm.workDate} onChange={(e) => setEditForm({ ...editForm, workDate: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Inicio</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="time" value={editForm.startTime} onChange={(e) => setEditForm({ ...editForm, startTime: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Termino</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="time" value={editForm.endTime} onChange={(e) => setEditForm({ ...editForm, endTime: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Paradas</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} value={editForm.stopsCount} onChange={(e) => setEditForm({ ...editForm, stopsCount: e.target.value })} />
-                        </label>
-                      </div>
-
-                      <div className="grid md:grid-cols-5 gap-3 mb-3">
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Parada (min)</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} value={editForm.pauseMinutes} onChange={(e) => setEditForm({ ...editForm, pauseMinutes: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Qtde palete</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} value={editForm.palletsCount} onChange={(e) => setEditForm({ ...editForm, palletsCount: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Valor da carga</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} step="0.01" value={editForm.loadValue} onChange={(e) => setEditForm({ ...editForm, loadValue: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Volume</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} value={editForm.volume} onChange={(e) => setEditForm({ ...editForm, volume: e.target.value })} />
-                        </label>
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Peso (kg)</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} step="0.01" value={editForm.weightKg} onChange={(e) => setEditForm({ ...editForm, weightKg: e.target.value })} />
-                        </label>
-                      </div>
-
-                      <div className="grid md:grid-cols-4 gap-3 mb-3">
-                        <label className="text-sm">
-                          <span className="block mb-1 text-slate-600">Isopor</span>
-                          <input className="border rounded-xl px-3 py-2 w-full" type="number" min={0} value={editForm.isoporQty} onChange={(e) => setEditForm({ ...editForm, isoporQty: e.target.value })} />
-                        </label>
-                        <label className="text-sm flex items-center gap-2 border rounded-xl px-3 py-2 h-[42px] mt-6">
-                          <input type="checkbox" checked={editForm.hasHelper} onChange={(e) => setEditForm({ ...editForm, hasHelper: e.target.checked, helperName: e.target.checked ? editForm.helperName : "" })} />
-                          Teve ajudante?
-                        </label>
-                        {editForm.hasHelper && (
-                          <label className="text-sm md:col-span-2">
-                            <span className="block mb-1 text-slate-600">Ajudante</span>
-                            <select className="border rounded-xl px-3 py-2 w-full" value={editForm.helperName} onChange={(e) => setEditForm({ ...editForm, helperName: e.target.value })}>
-                              <option value="">Selecione um usuario</option>
-                              {helpers.map((helper) => (
-                                <option key={helper.id} value={helper.name}>{helper.name}</option>
-                              ))}
-                            </select>
-                          </label>
-                        )}
-                      </div>
-
-                      <label className="text-sm block mb-3">
-                        <span className="block mb-1 text-slate-600">Motivo / observacoes</span>
-                        <input className="border rounded-xl px-3 py-2 w-full" value={editForm.pauseReason} onChange={(e) => setEditForm({ ...editForm, pauseReason: e.target.value })} placeholder="Motivo da parada" />
-                        <input className="border rounded-xl px-3 py-2 w-full mt-2" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} placeholder="Observacoes" />
-                      </label>
-
-                      <div className="flex gap-2">
-                        <button type="button" onClick={saveEdit} disabled={savingEdit} className="rounded-xl bg-teal-700 text-white px-4 py-2 font-semibold disabled:opacity-50">
-                          {savingEdit ? "Salvando..." : "Salvar edicao"}
-                        </button>
-                        <button type="button" onClick={cancelEdit} className="rounded-xl border border-slate-300 px-4 py-2 font-semibold">
-                          Cancelar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
+            {items.map((item: MontagemSpRecord) => (
+              <tr className="border-b" key={item.id}>
+                <td className="py-2">{item.work_date?.slice(0, 10)}</td>
+                <td>{item.loader_user_name}</td>
+                <td>{item.start_time || "-"}</td>
+                <td>{item.end_time || "-"}</td>
+                <td>{item.duration_minutes ?? "-"}</td>
+                <td>{item.photo_path ? <a className="underline" href={buildApiUrl(item.photo_path)} target="_blank" rel="noreferrer">abrir</a> : "-"}</td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -714,5 +405,3 @@ export function MontagemSpPage({ user }: { user: User }) {
     </section>
   );
 }
-
-
