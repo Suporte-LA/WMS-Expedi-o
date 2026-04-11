@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
-type TiSection = "registro" | "controle" | "base";
+type TiSection = "registro" | "controle" | "base" | "historico";
 
 function normalizeOperation(value: string) {
   return String(value || "")
@@ -68,6 +68,16 @@ export function TiPage() {
   const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null);
   const [recentRecords, setRecentRecords] = useState<Array<any>>([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<Array<any>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(25);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyFrom, setHistoryFrom] = useState(() => new Date(new Date().setMonth(new Date().getMonth() - 6)).toISOString().slice(0, 10));
+  const [historyTo, setHistoryTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [historyName, setHistoryName] = useState("");
+  const [historyOperation, setHistoryOperation] = useState("");
+  const [historyItem, setHistoryItem] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -198,6 +208,30 @@ export function TiPage() {
     }
   }
 
+  async function loadHistoryRecords(page = historyPage, pageSize = historyPageSize) {
+    setHistoryLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        from: historyFrom,
+        to: historyTo
+      });
+      if (historyName.trim()) params.set("name", historyName.trim());
+      if (historyOperation.trim()) params.set("operation", historyOperation.trim());
+      if (historyItem.trim()) params.set("item", historyItem.trim());
+      const { data } = await api.get(`/ti/records?${params.toString()}`);
+      setHistoryRecords(data.items || []);
+      setHistoryTotal(Number(data.total || 0));
+      setHistoryPage(page);
+      setHistoryPageSize(pageSize);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao carregar historico do TI.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function deleteRecord(id: string) {
     const ok = window.confirm("Deseja excluir este informe?");
     if (!ok) return;
@@ -309,6 +343,8 @@ export function TiPage() {
   useEffect(() => {
     if (activeSection === "controle") {
       loadControl();
+    } else if (activeSection === "historico") {
+      loadHistoryRecords(1, historyPageSize);
     }
   }, [activeSection]);
 
@@ -359,6 +395,13 @@ export function TiPage() {
               className={sectionButtonClass(activeSection === "base")}
             >
               Base de dados
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection("historico")}
+              className={sectionButtonClass(activeSection === "historico")}
+            >
+              Historico
             </button>
           </div>
         </div>
@@ -598,6 +641,124 @@ export function TiPage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeSection === "historico" && (
+        <div className="workspace-panel min-h-[200px] space-y-4">
+          <div className="workspace-panel-header">
+            <div>
+              <h3 className="font-semibold">Historico TI</h3>
+              <p className="text-sm text-slate-600">
+                Todos os registros ficam preservados aqui, inclusive nomes antigos dos consultores.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <input className="border rounded-xl px-3 py-2" type="date" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
+            <input className="border rounded-xl px-3 py-2" type="date" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
+            <input
+              className="border rounded-xl px-3 py-2"
+              placeholder="Filtrar por nome"
+              value={historyName}
+              onChange={(e) => setHistoryName(e.target.value)}
+            />
+            <input
+              className="border rounded-xl px-3 py-2"
+              placeholder="Filtrar por operacao"
+              value={historyOperation}
+              onChange={(e) => setHistoryOperation(e.target.value)}
+            />
+            <input
+              className="border rounded-xl px-3 py-2"
+              placeholder="Filtrar por manutencao"
+              value={historyItem}
+              onChange={(e) => setHistoryItem(e.target.value)}
+            />
+            <button type="button" className={primaryButtonClass()} onClick={() => loadHistoryRecords(1, historyPageSize)} disabled={historyLoading}>
+              {historyLoading ? "Atualizando..." : "Filtrar historico"}
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <div className="text-slate-600">Total de registros: <strong>{historyTotal}</strong></div>
+            <div className="flex items-center gap-2">
+              <span>Mostrar</span>
+              <select
+                className="border rounded-xl px-3 py-2"
+                value={historyPageSize}
+                onChange={(e) => loadHistoryRecords(1, Number(e.target.value))}
+              >
+                {[25, 50, 100].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="workspace-kpi-card overflow-auto">
+            <table className="w-full text-sm min-w-[1200px]">
+              <thead>
+                <tr className="text-left border-b">
+                  <th className="py-2">Data/Hora</th>
+                  <th>Nome registrado</th>
+                  <th>Operacao</th>
+                  <th>Manutencao</th>
+                  <th>Celular</th>
+                  <th>Tablet</th>
+                  <th>Usuario que registrou</th>
+                  <th>ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyRecords.map((row) => (
+                  <tr key={row.id} className="border-b">
+                    <td className="py-2">{new Date(row.submitted_at).toLocaleString("pt-BR")}</td>
+                    <td>{row.name}</td>
+                    <td>{row.operation}</td>
+                    <td>{row.maintenance_item}</td>
+                    <td>{row.phone_model || "-"}</td>
+                    <td>{row.tablet_model || "-"}</td>
+                    <td>{row.created_by_name || "-"}</td>
+                    <td className="font-mono text-xs">{row.id}</td>
+                  </tr>
+                ))}
+                {!historyRecords.length && !historyLoading && (
+                  <tr>
+                    <td colSpan={8} className="py-3 text-slate-500">Nenhum registro encontrado para os filtros informados.</td>
+                  </tr>
+                )}
+                {historyLoading && (
+                  <tr>
+                    <td colSpan={8} className="py-3 text-slate-500">Carregando historico...</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className={softButtonClass()}
+              onClick={() => loadHistoryRecords(Math.max(1, historyPage - 1), historyPageSize)}
+              disabled={historyLoading || historyPage <= 1}
+            >
+              Anterior
+            </button>
+            <span className="text-sm text-slate-600">
+              Pagina {historyPage} de {Math.max(1, Math.ceil(historyTotal / historyPageSize))}
+            </span>
+            <button
+              type="button"
+              className={softButtonClass()}
+              onClick={() => loadHistoryRecords(historyPage + 1, historyPageSize)}
+              disabled={historyLoading || historyPage >= Math.max(1, Math.ceil(historyTotal / historyPageSize))}
+            >
+              Proxima
+            </button>
           </div>
         </div>
       )}

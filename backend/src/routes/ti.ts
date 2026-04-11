@@ -715,8 +715,18 @@ tiRouter.get("/records", authRequired, async (req: AuthenticatedRequest, res) =>
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const offset = (page - 1) * pageSize;
-  values.push(pageSize);
-  values.push(offset);
+  const paginationValues = [...values];
+  paginationValues.push(pageSize);
+  paginationValues.push(offset);
+
+  const countResult = await pool.query(
+    `
+      SELECT COUNT(*)::int AS total
+      FROM ti_device_records r
+      ${where}
+    `,
+    values
+  );
 
   const result = await pool.query(
     `
@@ -724,12 +734,12 @@ tiRouter.get("/records", authRequired, async (req: AuthenticatedRequest, res) =>
       FROM ti_device_records r
       ${where}
       ORDER BY r.submitted_at DESC
-      LIMIT $${values.length - 1} OFFSET $${values.length}
+      LIMIT $${paginationValues.length - 1} OFFSET $${paginationValues.length}
     `,
-    values
+    paginationValues
   );
 
-  return res.json({ items: result.rows, page, pageSize });
+  return res.json({ items: result.rows, page, pageSize, total: countResult.rows[0]?.total || 0 });
 });
 
 tiRouter.delete("/records/:id", authRequired, async (req: AuthenticatedRequest, res) => {
