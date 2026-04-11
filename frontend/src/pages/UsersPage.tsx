@@ -12,6 +12,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   const [workspace, setWorkspace] = useState<Workspace>("expedicao");
   const [penColor, setPenColor] = useState("Blue");
   const [error, setError] = useState("");
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
   const [roleDrafts, setRoleDrafts] = useState<Record<string, Role>>({});
   const [colorDrafts, setColorDrafts] = useState<Record<string, string>>({});
   const [workspaceDrafts, setWorkspaceDrafts] = useState<Record<string, Workspace>>({});
@@ -25,14 +26,17 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
     const { data } = await api.get("/users");
     const items = (data.items || []) as User[];
     setUsers(items);
+    const names: Record<string, string> = {};
     const drafts: Record<string, Role> = {};
     const colors: Record<string, string> = {};
     const workspaces: Record<string, Workspace> = {};
     items.forEach((u) => {
+      names[u.id] = u.name;
       drafts[u.id] = u.role;
       colors[u.id] = u.pen_color || "Blue";
       workspaces[u.id] = u.workspace || "expedicao";
     });
+    setNameDrafts(names);
     setRoleDrafts(drafts);
     setColorDrafts(colors);
     setWorkspaceDrafts(workspaces);
@@ -87,14 +91,24 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   }
 
   async function saveUser(user: User) {
+    const nextName = (nameDrafts[user.id] || "").trim();
     const nextRole = roleDrafts[user.id];
     const nextColor = (colorDrafts[user.id] || "").trim();
     const nextWorkspace = workspaceDrafts[user.id];
     if (!nextRole) return;
-    if (nextRole === user.role && nextColor === (user.pen_color || "") && nextWorkspace === user.workspace) return;
+    if (!nextName || nextName.length < 2) {
+      setError("Nome deve ter ao menos 2 caracteres.");
+      return;
+    }
+    if (nextName === user.name && nextRole === user.role && nextColor === (user.pen_color || "") && nextWorkspace === user.workspace) return;
     setSavingUserId(user.id);
     try {
-      await api.patch(`/users/${user.id}`, { role: nextRole, pen_color: nextColor || user.pen_color, workspace: nextWorkspace || user.workspace });
+      await api.patch(`/users/${user.id}`, {
+        name: nextName,
+        role: nextRole,
+        pen_color: nextColor || user.pen_color,
+        workspace: nextWorkspace || user.workspace
+      });
       await loadUsers();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao salvar usuario.");
@@ -169,7 +183,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
           <thead>
             <tr className="text-left border-b">
               <th className="py-2">Nome</th>
-              <th>E-mail</th>
+              <th>Login</th>
               <th>Perfil</th>
               <th>Cor</th>
               <th>Tela</th>
@@ -180,7 +194,13 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
           <tbody>
             {shownUsers.map((u) => (
               <tr key={u.id} className="border-b">
-                <td className="py-2">{u.name}</td>
+                <td className="py-2">
+                  <input
+                    className="border rounded-lg px-2 py-1 w-52"
+                    value={nameDrafts[u.id] || ""}
+                    onChange={(e) => setNameDrafts((prev) => ({ ...prev, [u.id]: e.target.value }))}
+                  />
+                </td>
                 <td>{u.email}</td>
                 <td>
                   <select
