@@ -325,7 +325,7 @@ export function StockTiPage({ user }: { user: User }) {
             <div className="md:col-span-4 flex gap-2">
               <input
                 className="border rounded-xl px-3 py-2 flex-1"
-                placeholder="SKU ou Cod (bipado)"
+                placeholder="SKU, Cod ou nome do item"
                 value={productRef}
                 onChange={(e) => setProductRef(e.target.value)}
                 onBlur={() => lookupProduct(productRef)}

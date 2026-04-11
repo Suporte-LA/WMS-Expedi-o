@@ -189,7 +189,7 @@ tiStockRouter.get("/lookup/:value", authRequired, async (req, res) => {
   const ref = String(req.params.value || "").trim();
   if (!ref) return res.status(400).json({ message: "Referencia invalida." });
 
-  const result = await pool.query(
+  const exactResult = await pool.query(
     `
       SELECT *
       FROM ti_stock_products
@@ -198,8 +198,27 @@ tiStockRouter.get("/lookup/:value", authRequired, async (req, res) => {
     `,
     [ref]
   );
-  if (!result.rowCount) return res.status(404).json({ message: "Produto nao encontrado na base TI." });
-  return res.json(result.rows[0]);
+
+  if (exactResult.rowCount) {
+    return res.json(exactResult.rows[0]);
+  }
+
+  const fuzzyResult = await pool.query(
+    `
+      SELECT *
+      FROM ti_stock_products
+      WHERE description ILIKE $1
+         OR category ILIKE $1
+      ORDER BY
+        CASE WHEN description ILIKE $2 THEN 0 ELSE 1 END,
+        current_stock DESC,
+        updated_at DESC
+      LIMIT 1
+    `,
+    [`%${ref}%`, `${ref}%`]
+  );
+  if (!fuzzyResult.rowCount) return res.status(404).json({ message: "Produto nao encontrado na base TI." });
+  return res.json(fuzzyResult.rows[0]);
 });
 
 tiStockRouter.get("/alerts-low", authRequired, async (_req, res) => {
