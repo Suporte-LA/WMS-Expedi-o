@@ -12,6 +12,14 @@ type TiRecord = {
   created_by_name: string | null;
 };
 
+function toIsoDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -163,7 +171,7 @@ async function run() {
             `Saida automatica retroativa via TI - ${record.maintenance_item} | TI_RECORD:${record.id}`,
             record.created_by_user_id,
             record.created_by_name || "Backfill TI",
-            String(record.submitted_at).slice(0, 10),
+            toIsoDate(record.submitted_at),
             record.name
           ]
         );
@@ -185,7 +193,6 @@ async function run() {
     console.log(`- Ignoradas: ${skipped}`);
   } finally {
     client.release();
-    await pool.end();
   }
 }
 
@@ -193,4 +200,6 @@ run().catch(async (error) => {
   console.error("Erro no backfill TI:", error);
   await pool.end();
   process.exit(1);
+}).then(async () => {
+  await pool.end();
 });
