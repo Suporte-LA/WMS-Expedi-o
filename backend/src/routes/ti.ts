@@ -81,14 +81,42 @@ async function findTiStockProductForModel(
   maintKey: string,
   lockRow = true
 ): Promise<any | null> {
-  const params: unknown[] = [modelRef, `%${modelRef}%`];
-  let kindFilter = "";
-  if (maintKey.includes("pelicula")) {
-    params.push("%pelicula%");
-    kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
-  } else if (maintKey.includes("capinha") || maintKey.includes("capa")) {
-    params.push("%cap%");
-    kindFilter = ` AND lower(coalesce(p.category, '')) LIKE $${params.length}`;
+  const normalizedModel = modelRef.trim();
+  const rawMaint = maintKey.trim();
+  const searchTerms = new Set<string>([normalizedModel]);
+
+  if (rawMaint.includes("pelicula") || rawMaint.includes("película")) {
+    searchTerms.add(`pelicula ${normalizedModel}`);
+    searchTerms.add(`película ${normalizedModel}`);
+  } else if (rawMaint.includes("capinha") || rawMaint.includes("capa")) {
+    searchTerms.add(`capa ${normalizedModel}`);
+    searchTerms.add(`capinha ${normalizedModel}`);
+  } else if (rawMaint.includes("celular") || rawMaint.includes("aparelho")) {
+    searchTerms.add(normalizedModel);
+  } else if (rawMaint.includes("tablet")) {
+    searchTerms.add(normalizedModel);
+  } else {
+    searchTerms.add(`${rawMaint} ${normalizedModel}`.trim());
+  }
+
+  const patterns = Array.from(searchTerms)
+    .map((term) => term.trim())
+    .filter(Boolean);
+
+  const params: unknown[] = [normalizedModel];
+  const likeClauses: string[] = [];
+  for (const pattern of patterns) {
+    params.push(`%${pattern}%`);
+    likeClauses.push(`lower(coalesce(p.description, '')) LIKE lower($${params.length})`);
+  }
+
+  let categoryClause = "";
+  if (rawMaint.includes("pelicula") || rawMaint.includes("película")) {
+    params.push("%pel%");
+    categoryClause = ` OR lower(coalesce(p.category, '')) LIKE lower($${params.length})`;
+  } else if (rawMaint.includes("capinha") || rawMaint.includes("capa")) {
+    params.push("%capa%");
+    categoryClause = ` OR lower(coalesce(p.category, '')) LIKE lower($${params.length})`;
   }
 
   const lockClause = lockRow ? "FOR UPDATE" : "";
@@ -98,8 +126,7 @@ async function findTiStockProductForModel(
       FROM ti_stock_products p
       WHERE p.sku = $1
          OR p.cod = $1
-         OR lower(coalesce(p.description, '')) LIKE lower($2)
-         ${kindFilter}
+         OR (${likeClauses.join(" OR ")}${categoryClause})
       ORDER BY p.current_stock DESC, p.updated_at DESC
       LIMIT 1
       ${lockClause}
