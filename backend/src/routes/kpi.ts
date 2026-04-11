@@ -16,6 +16,7 @@ const kpiQuerySchema = z.object({
 const rankingSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
+  user: z.string().optional(),
   metric: z.enum(["orders", "boxes", "weight"]).default("orders"),
   limit: z.coerce.number().int().min(1).max(100).default(10)
 });
@@ -188,9 +189,11 @@ kpiRouter.get("/ranking", authRequired, requireScreenAccess("dashboard"), async 
     return res.status(400).json({ message: "Query invalida." });
   }
 
-  const { from, to, metric, limit } = parsed.data;
+  const { from, to, user, metric, limit } = parsed.data;
   const metricColumn =
     metric === "orders" ? "SUM(c.orders_count)" : metric === "boxes" ? "SUM(c.boxes_count)" : "SUM(c.weight_kg)";
+  const params = user ? [from, to, user, limit] : [from, to, limit];
+  const userFilter = user ? "WHERE c.user_name = $3" : "";
 
   const result = await pool.query(
     `
@@ -199,16 +202,18 @@ kpiRouter.get("/ranking", authRequired, requireScreenAccess("dashboard"), async 
         c.user_name,
         ${metricColumn} AS metric_value
       FROM combined_kpi c
+      ${userFilter}
       GROUP BY c.user_name
       ORDER BY metric_value DESC
-      LIMIT $3
+      LIMIT $${params.length}
     `,
-    [from, to, limit]
+    params
   );
 
   return res.json({
     from,
     to,
+    user: user ?? null,
     metric,
     items: result.rows
   });

@@ -73,12 +73,14 @@ export function DashboardPage() {
       const toParam = normalizeDateParam(to);
       const params = new URLSearchParams({ from: fromParam, to: toParam, page: String(page), pageSize: String(pageSize) });
       if (user) params.set("user", user);
+      const rankingParams = new URLSearchParams({ from: fromParam, to: toParam });
+      if (user) rankingParams.set("user", user);
 
       const [kpi, orders, boxes, weight] = await Promise.all([
         api.get(`/kpi?${params.toString()}`),
-        api.get(`/kpi/ranking?from=${from}&to=${to}&metric=orders`),
-        api.get(`/kpi/ranking?from=${from}&to=${to}&metric=boxes`),
-        api.get(`/kpi/ranking?from=${from}&to=${to}&metric=weight`)
+        api.get(`/kpi/ranking?${rankingParams.toString()}&metric=orders`),
+        api.get(`/kpi/ranking?${rankingParams.toString()}&metric=boxes`),
+        api.get(`/kpi/ranking?${rankingParams.toString()}&metric=weight`)
       ]);
 
       setCards(kpi.data.cards);
