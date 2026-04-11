@@ -79,18 +79,20 @@ async function findTiStockProductForModel(
   client: any,
   modelRef: string,
   maintKey: string,
+  deviceKind: "phone" | "tablet" | null = null,
   lockRow = true
 ): Promise<any | null> {
   const normalizedModel = modelRef.trim();
-  const rawMaint = maintKey.trim();
+  const rawMaint = normalizeText(maintKey.trim());
   const searchTerms = new Set<string>([normalizedModel]);
 
-  if (rawMaint.includes("pelicula") || rawMaint.includes("película")) {
+  if (rawMaint.includes("pelicula")) {
     searchTerms.add(`pelicula ${normalizedModel}`);
-    searchTerms.add(`película ${normalizedModel}`);
+    searchTerms.add(`${normalizedModel} pelicula`);
   } else if (rawMaint.includes("capinha") || rawMaint.includes("capa")) {
     searchTerms.add(`capa ${normalizedModel}`);
     searchTerms.add(`capinha ${normalizedModel}`);
+    searchTerms.add(`${normalizedModel} capa`);
   } else if (rawMaint.includes("celular") || rawMaint.includes("aparelho")) {
     searchTerms.add(normalizedModel);
   } else if (rawMaint.includes("tablet")) {
@@ -110,31 +112,72 @@ async function findTiStockProductForModel(
     likeClauses.push(`lower(coalesce(p.description, '')) LIKE lower($${params.length})`);
   }
 
-  let categoryClause = "";
-  if (rawMaint.includes("pelicula") || rawMaint.includes("película")) {
-    params.push("%pel%");
-    categoryClause = ` OR lower(coalesce(p.category, '')) LIKE lower($${params.length})`;
-  } else if (rawMaint.includes("capinha") || rawMaint.includes("capa")) {
-    params.push("%capa%");
-    categoryClause = ` OR lower(coalesce(p.category, '')) LIKE lower($${params.length})`;
-  }
-
   const lockClause = lockRow ? "FOR UPDATE" : "";
-  const product = await client.query(
+  const candidates = await client.query(
     `
       SELECT p.*
       FROM ti_stock_products p
       WHERE p.sku = $1
          OR p.cod = $1
-         OR (${likeClauses.join(" OR ")}${categoryClause})
-      ORDER BY p.current_stock DESC, p.updated_at DESC
-      LIMIT 1
+         OR (${likeClauses.join(" OR ")})
+      ORDER BY p.updated_at DESC
+      LIMIT 50
       ${lockClause}
     `,
     params
   );
-  if (!product.rowCount) return null;
-  return product.rows[0];
+  if (!candidates.rowCount) return null;
+
+  const normalizedModelKey = normalizeText(normalizedModel);
+  const exactPhraseA = normalizeText(`${rawMaint} ${normalizedModel}`.trim());
+  const exactPhraseB = normalizeText(`${normalizedModel} ${rawMaint}`.trim());
+  const isPelicula = rawMaint.includes("pelicula");
+  const isCapa = rawMaint.includes("capinha") || rawMaint.includes("capa");
+  const isTabletHint = deviceKind === "tablet";
+  const isPhoneHint = deviceKind === "phone";
+
+  const scored = candidates.rows
+    .map((row: any) => {
+      const description = normalizeText(String(row.description || ""));
+      const category = normalizeText(String(row.category || ""));
+      const isTabletItem =
+        description.includes("tab") ||
+        description.includes("tablet") ||
+        category.includes("tablet");
+
+      let score = 0;
+
+      if (String(row.sku || "") === normalizedModel || String(row.cod || "") === normalizedModel) score += 500;
+      if (description.includes(exactPhraseA) || description.includes(exactPhraseB)) score += 300;
+      if (description.includes(normalizedModelKey)) score += 180;
+
+      if (isPelicula) {
+        if (description.includes("pelicula") || category.includes("pelicula")) score += 120;
+        if (description.includes("capa") || category.includes("capa")) score -= 160;
+      } else if (isCapa) {
+        if (description.includes("capa") || category.includes("capa")) score += 120;
+        if (description.includes("pelicula") || category.includes("pelicula")) score -= 160;
+      }
+
+      if (isTabletHint) {
+        if (isTabletItem) score += 220;
+        else score -= 260;
+      }
+
+      if (isPhoneHint) {
+        if (!isTabletItem) score += 120;
+        else score -= 220;
+      }
+
+      score += Math.min(Number(row.current_stock || 0), 50);
+      return { row, score };
+    })
+    .sort((a: { row: any; score: number }, b: { row: any; score: number }) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return Number(b.row.current_stock || 0) - Number(a.row.current_stock || 0);
+    });
+
+  return scored[0]?.score > 0 ? scored[0].row : null;
 }
 
 function pickField(row: Record<string, unknown>, aliases: string[]) {
@@ -468,6 +511,11 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
   const maintenance = data.maintenanceItem.trim();
   const maintKey = normalizeText(maintenance);
   const modelRef = (data.phoneModel?.trim() || data.tabletModel?.trim() || "").trim();
+  const modelDeviceKind: "phone" | "tablet" | null = data.tabletModel?.trim()
+    ? "tablet"
+    : data.phoneModel?.trim()
+      ? "phone"
+      : null;
 
   const client = await pool.connect();
   try {
@@ -505,11 +553,16 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
     };
 
     const deliveredModelRef = (data.deliveredPhoneModel?.trim() || data.deliveredTabletModel?.trim() || "").trim();
+    const deliveredDeviceKind: "phone" | "tablet" | null = data.deliveredTabletModel?.trim()
+      ? "tablet"
+      : data.deliveredPhoneModel?.trim()
+        ? "phone"
+        : null;
     const isDeviceExchange = maintKey.includes("aparelho") || maintKey === "celular" || maintKey === "tablet";
     const integrationMessages: string[] = [];
 
     if (isDeviceExchange && modelRef) {
-      const oldProduct = await findTiStockProductForModel(client, modelRef, maintKey, true);
+      const oldProduct = await findTiStockProductForModel(client, modelRef, maintKey, modelDeviceKind, true);
       if (!oldProduct) {
         integrationMessages.push(`Nao achamos aparelho antigo "${modelRef}" para entrada no estoque.`);
       } else {
@@ -554,7 +607,13 @@ tiRouter.post("/records", authRequired, async (req: AuthenticatedRequest, res) =
     } else {
       const exitModelRef = isDeviceExchange ? deliveredModelRef : modelRef;
       if (exitModelRef) {
-        const product = await findTiStockProductForModel(client, exitModelRef, maintKey, true);
+        const product = await findTiStockProductForModel(
+          client,
+          exitModelRef,
+          maintKey,
+          isDeviceExchange ? deliveredDeviceKind : modelDeviceKind,
+          true
+        );
         if (!product) {
           stockIntegration = {
             status: "not_found",
