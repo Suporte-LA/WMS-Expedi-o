@@ -295,32 +295,64 @@ function mergeRowsWithAllocations<T extends { product_code?: string | null }>(ro
 }
 
 async function findExpirationContext(productCode: string) {
-  const latestLocation = await pool.query(
-    `
-      SELECT local, street
-      FROM stock_expirations
-      WHERE product_code = $1
-      ORDER BY work_date DESC, created_at DESC
-      LIMIT 1
-    `,
-    [productCode]
-  );
+  const [allocationRes, latestLocation, expiries, activeLots] = await Promise.all([
+    pool.query(
+      `
+        SELECT shed, street, building, apartment, pallet_position, position_label, pallet_code
+        FROM stock_allocations
+        WHERE product_code = $1
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+      `,
+      [productCode]
+    ),
+    pool.query(
+      `
+        SELECT local, street
+        FROM stock_expirations
+        WHERE product_code = $1
+        ORDER BY work_date DESC, created_at DESC
+        LIMIT 1
+      `,
+      [productCode]
+    ),
+    pool.query(
+      `
+        SELECT quantity, expiry_date
+        FROM stock_expirations
+        WHERE product_code = $1
+        ORDER BY expiry_date ASC NULLS LAST, created_at DESC
+        LIMIT 2
+      `,
+      [productCode]
+    ),
+    pool.query(
+      `
+        SELECT quantity_remaining AS quantity, expiry_date
+        FROM stock_inventory_lots
+        WHERE product_code = $1
+          AND quantity_remaining > 0
+        ORDER BY expiry_date ASC NULLS LAST, created_at ASC
+        LIMIT 2
+      `,
+      [productCode]
+    )
+  ]);
 
-  const expiries = await pool.query(
-    `
-      SELECT quantity, expiry_date
-      FROM stock_expirations
-      WHERE product_code = $1
-      ORDER BY expiry_date ASC NULLS LAST, created_at DESC
-      LIMIT 2
-    `,
-    [productCode]
-  );
+  const allocation = allocationRes.rows[0];
+  const source = allocation ? "allocation" : latestLocation.rows[0] ? "validade" : "none";
+  const local = allocation ? `Galpao ${allocation.shed}` : latestLocation.rows[0]?.local || null;
+  const street = allocation
+    ? `Rua ${allocation.street} | Predio ${allocation.building} | Apartamento ${allocation.apartment} | Posicao ${allocation.pallet_position}`
+    : latestLocation.rows[0]?.street || null;
 
   return {
-    local: latestLocation.rows[0]?.local || null,
-    street: latestLocation.rows[0]?.street || null,
-    expiries: expiries.rows
+    source,
+    local,
+    street,
+    palletCode: allocation?.pallet_code || null,
+    positionLabel: allocation?.position_label || null,
+    expiries: activeLots.rowCount ? activeLots.rows : expiries.rows
   };
 }
 
@@ -519,12 +551,14 @@ stockRouter.get("/lookup/:value", authRequired, async (req, res) => {
   });
 });
 
-stockRouter.get("/dashboard", authRequired, async (req, res) => {
+stockRouter.get("/dashboard", authRequired, async (req: AuthenticatedRequest, res) => {
   const parsed = dashboardSchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ message: "Query invalida." });
+  if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
 
   const from = parsed.data.from || "1900-01-01";
   const to = parsed.data.to || "2999-12-31";
+  const canViewOperatorIndicators = req.user.role === "admin" || req.user.role === "supervisor";
 
   const [cardsRes, trendRes, operatorRes, activityRes] = await Promise.all([
     pool.query(
@@ -585,14 +619,24 @@ stockRouter.get("/dashboard", authRequired, async (req, res) => {
   ]);
 
   return res.json({
-    cards: cardsRes.rows[0] || {
-      total_entries: 0,
-      total_exits: 0,
-      total_skus: 0,
-      total_operators: 0
-    },
+    cards: canViewOperatorIndicators
+      ? cardsRes.rows[0] || {
+          total_entries: 0,
+          total_exits: 0,
+          total_skus: 0,
+          total_operators: 0
+        }
+      : {
+          ...(cardsRes.rows[0] || {
+            total_entries: 0,
+            total_exits: 0,
+            total_skus: 0,
+            total_operators: 0
+          }),
+          total_operators: 0
+        },
     trend: trendRes.rows,
-    byOperator: operatorRes.rows,
+    byOperator: canViewOperatorIndicators ? operatorRes.rows : [],
     byActivity: activityRes.rows
   });
 });

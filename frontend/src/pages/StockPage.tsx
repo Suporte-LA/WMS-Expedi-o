@@ -40,8 +40,11 @@ type ScannerTarget = "localizar" | "abastecimento" | "validades" | "alocacao" | 
 type LookupPayload = {
   product: StockBaseProduct;
   expirationContext?: {
+    source?: "allocation" | "validade" | "none";
     local?: string | null;
     street?: string | null;
+    palletCode?: string | null;
+    positionLabel?: string | null;
     expiries?: Array<{
       quantity?: number | null;
       expiry_date?: string | null;
@@ -305,6 +308,7 @@ export function StockPage() {
   const [allocationPalletSearch, setAllocationPalletSearch] = useState("");
   const [savingAllocation, setSavingAllocation] = useState(false);
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
+  const canViewStockIndicators = storedUser?.role === "admin" || storedUser?.role === "supervisor";
 
   const periodLabel = useMemo(() => `${isoDaysAgo(30)} até ${isoToday()}`, []);
   const trendData = useMemo(
@@ -422,6 +426,7 @@ export function StockPage() {
         setLocatedItem(product);
         setLocatedAllocations(data.allocations || []);
         setScanValue(clean);
+        setMessage(data.allocations?.length ? "Produto localizado com base na alocação atual." : "Produto localizado na base do estoque. Sem alocação atual cadastrada.");
       }
       if (target === "abastecimento") {
         setReplenishmentProduct(product);
@@ -429,17 +434,30 @@ export function StockPage() {
         setReplenishmentForm((prev) => ({
           ...prev,
           scannedCode: clean,
+          quantity1: expirationContext.expiries?.[0]?.quantity ? String(expirationContext.expiries[0].quantity) : prev.quantity1,
           expiry1: expirationContext.expiries?.[0]?.expiry_date || prev.expiry1,
+          quantity2: expirationContext.expiries?.[1]?.quantity ? String(expirationContext.expiries[1].quantity) : prev.quantity2,
           expiry2: expirationContext.expiries?.[1]?.expiry_date || prev.expiry2
         }));
+        if (expirationContext.source === "allocation") {
+          setMessage(
+            `Produto localizado. Endereço preenchido automaticamente pela alocação atual${expirationContext.palletCode ? ` (${expirationContext.palletCode})` : ""}. Quantidade registrada em master.`
+          );
+        } else if (expirationContext.source === "validade") {
+          setMessage("Produto localizado. Endereço sugerido com base no último registro de validade. Quantidade registrada em master.");
+        } else {
+          setMessage("Produto localizado. Sem endereço automático cadastrado; valide a posição do item antes de registrar o abastecimento. Quantidade registrada em master.");
+        }
       }
       if (target === "validades") {
         setExpirationProduct(product);
         setExpirationForm((prev) => ({ ...prev, scannedCode: clean }));
+        setMessage("Produto localizado. Código, descrição e fornecedor confirmados pela base.");
       }
       if (target === "alocacao") {
         setAllocationProduct(product);
         setAllocationForm((prev) => ({ ...prev, scannedCode: clean }));
+        setMessage("Produto localizado. Defina a nova posição para concluir a alocação.");
       }
     } catch (err: any) {
       if (target === "locate") {
@@ -787,14 +805,16 @@ export function StockPage() {
                   <p className="text-sm text-slate-500">SKUs Movimentados</p>
                   <p className="text-lg font-semibold">{dashboard?.cards.total_skus || 0}</p>
                 </article>
-                <article className="workspace-kpi-card">
-                  <p className="text-sm text-slate-500">Operadores Ativos</p>
-                  <p className="text-lg font-semibold">{dashboard?.cards.total_operators || 0}</p>
-                </article>
+                {canViewStockIndicators && (
+                  <article className="workspace-kpi-card">
+                    <p className="text-sm text-slate-500">Operadores Ativos</p>
+                    <p className="text-lg font-semibold">{dashboard?.cards.total_operators || 0}</p>
+                  </article>
+                )}
               </div>
 
-              <div className="grid lg:grid-cols-2 gap-4">
-                <div className="workspace-kpi-card h-72">
+              <div className={`grid gap-4 ${canViewStockIndicators ? "lg:grid-cols-2" : "lg:grid-cols-1"}`}>
+                <div className="workspace-kpi-card h-72 min-w-0">
                   <h3 className="font-semibold mb-2">Tendência diária</h3>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={trendData}>
@@ -807,17 +827,19 @@ export function StockPage() {
                   </ResponsiveContainer>
                 </div>
 
-                <div className="workspace-kpi-card h-72">
-                  <h3 className="font-semibold mb-2">Operadores e atividades</h3>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={dashboard?.byOperator || []}>
-                      <XAxis dataKey="operator_name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="total_quantity" fill="#0f766e" name="Quantidade" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                {canViewStockIndicators && (
+                  <div className="workspace-kpi-card h-72 min-w-0">
+                    <h3 className="font-semibold mb-2">Operadores e atividades</h3>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={dashboard?.byOperator || []}>
+                        <XAxis dataKey="operator_name" />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="total_quantity" fill="#0f766e" name="Quantidade" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </div>
 
               <div className="workspace-kpi-card space-y-3">
@@ -1174,6 +1196,7 @@ export function StockPage() {
                   <button type="button" className={softButtonClass()} onClick={() => setScannerTarget("abastecimento")}>Escanear</button>
                   <button type="button" className={softButtonClass()} onClick={() => resolveProduct(replenishmentForm.scannedCode, "abastecimento")}>Buscar produto</button>
                 </div>
+                <p className="text-sm text-slate-600">Quantidade de abastecimento registrada em master. O endereço é preenchido automaticamente pela alocação atual do item e, se não houver alocação, pelo último registro de validade.</p>
 
                 <div className="grid md:grid-cols-5 gap-3 text-sm">
                   <input className="border rounded-xl px-3 py-2 bg-slate-50" readOnly value={replenishmentProduct?.product_code || ""} placeholder="Cód. produto" />
@@ -1193,9 +1216,9 @@ export function StockPage() {
                 </div>
 
                 <div className="grid md:grid-cols-4 gap-3">
-                  <input className="border rounded-xl px-3 py-2" placeholder="Quantidade 1" value={replenishmentForm.quantity1} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, quantity1: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Quantidade 1 (master)" value={replenishmentForm.quantity1} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, quantity1: e.target.value }))} />
                   <input className="border rounded-xl px-3 py-2" type="date" value={replenishmentForm.expiry1} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, expiry1: e.target.value }))} />
-                  <input className="border rounded-xl px-3 py-2" placeholder="Quantidade 2" value={replenishmentForm.quantity2} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, quantity2: e.target.value }))} />
+                  <input className="border rounded-xl px-3 py-2" placeholder="Quantidade 2 (master)" value={replenishmentForm.quantity2} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, quantity2: e.target.value }))} />
                   <input className="border rounded-xl px-3 py-2" type="date" value={replenishmentForm.expiry2} onChange={(e) => setReplenishmentForm((prev) => ({ ...prev, expiry2: e.target.value }))} />
                 </div>
 
