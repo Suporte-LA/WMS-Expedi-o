@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
 type TiSection = "registro" | "controle" | "base" | "historico";
+const TI_SECTION_KEY = "wms:ti:activeSection";
 
 function normalizeOperation(value: string) {
   return String(value || "")
@@ -47,7 +48,11 @@ function primaryButtonClass(extra = "") {
 }
 
 export function TiPage() {
-  const [activeSection, setActiveSection] = useState<TiSection>("registro");
+  const [activeSection, setActiveSection] = useState<TiSection>(() => {
+    if (typeof window === "undefined") return "registro";
+    const stored = localStorage.getItem(TI_SECTION_KEY);
+    return stored === "registro" || stored === "controle" || stored === "base" || stored === "historico" ? stored : "registro";
+  });
   const [baseFile, setBaseFile] = useState<File | null>(null);
   const [historyFile, setHistoryFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -93,6 +98,10 @@ export function TiPage() {
   const isDeviceExchange = maintenanceKey.includes("aparelho") || maintenanceKey === "celular" || maintenanceKey === "tablet";
   const effectiveDeviceType: "phone" | "tablet" | "" =
     maintenanceKey === "celular" ? "phone" : maintenanceKey === "tablet" ? "tablet" : deviceType;
+
+  useEffect(() => {
+    localStorage.setItem(TI_SECTION_KEY, activeSection);
+  }, [activeSection]);
 
   async function loadCatalog() {
     const { data } = await api.get("/ti/catalog/options");

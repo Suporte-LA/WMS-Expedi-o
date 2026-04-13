@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { api } from "../lib/api";
 import type { TiStockMovement, TiStockProduct, User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
+const STOCK_TI_VIEW_KEY = "wms:stockTi:activeView";
 
 const MOVEMENT_CODE_OPTIONS = [
   "B.U 1.1 RECEBIMENTO E ESTOQUE",
@@ -98,11 +99,19 @@ export function StockTiPage({ user }: { user: User }) {
   const [reportMovementSearch, setReportMovementSearch] = useState("");
   const [reportMovements, setReportMovements] = useState<TiStockMovement[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
-  const [activeView, setActiveView] = useState<"movement" | "report">("movement");
+  const [activeView, setActiveView] = useState<"movement" | "report">(() => {
+    if (typeof window === "undefined") return "movement";
+    const stored = localStorage.getItem(STOCK_TI_VIEW_KEY);
+    return stored === "movement" || stored === "report" ? stored : "movement";
+  });
 
   const [products, setProducts] = useState<TiStockProduct[]>([]);
   const [movements, setMovements] = useState<TiStockMovement[]>([]);
   const [lowAlerts, setLowAlerts] = useState<TiStockProduct[]>([]);
+
+  useEffect(() => {
+    localStorage.setItem(STOCK_TI_VIEW_KEY, activeView);
+  }, [activeView]);
 
   async function loadReport() {
     setReportLoading(true);

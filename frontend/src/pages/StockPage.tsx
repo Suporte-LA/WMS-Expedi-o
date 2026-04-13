@@ -36,6 +36,7 @@ function currentTime() {
 
 type StockTab = "dashboard" | "localizar" | "base" | "abastecimento" | "validades" | "alocacao";
 type ScannerTarget = "localizar" | "abastecimento" | "validades" | "alocacao" | null;
+const STOCK_TAB_KEY = "wms:stock:activeTab";
 
 type LookupPayload = {
   product: StockBaseProduct;
@@ -247,7 +248,18 @@ function parsePositionFields(local?: string | null, street?: string | null): Pos
 
 export function StockPage() {
   const storedUser = getStoredUser();
-  const [activeTab, setActiveTab] = useState<StockTab>("dashboard");
+  const [activeTab, setActiveTab] = useState<StockTab>(() => {
+    if (typeof window === "undefined") return "dashboard";
+    const stored = localStorage.getItem(STOCK_TAB_KEY);
+    return stored === "dashboard" ||
+      stored === "localizar" ||
+      stored === "base" ||
+      stored === "abastecimento" ||
+      stored === "validades" ||
+      stored === "alocacao"
+      ? stored
+      : "dashboard";
+  });
   const [scannerTarget, setScannerTarget] = useState<ScannerTarget>(null);
 
   const [baseFile, setBaseFile] = useState<File | null>(null);
@@ -309,6 +321,10 @@ export function StockPage() {
   const [savingAllocation, setSavingAllocation] = useState(false);
   const [editingAllocationId, setEditingAllocationId] = useState<string | null>(null);
   const canViewStockIndicators = storedUser?.role === "admin" || storedUser?.role === "supervisor";
+
+  useEffect(() => {
+    localStorage.setItem(STOCK_TAB_KEY, activeTab);
+  }, [activeTab]);
 
   const periodLabel = useMemo(() => `${isoDaysAgo(30)} até ${isoToday()}`, []);
   const trendData = useMemo(
