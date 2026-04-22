@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
@@ -355,7 +356,12 @@ importsRouter.post(
         VALUES ($1, $2, 'processing', 0, 0, 0, 0, $3::jsonb, $4)
         RETURNING id
       `,
-      [req.file.originalname, "base-import", JSON.stringify({ type: "BASE" }), req.user?.id]
+      [
+        req.file.originalname,
+        createHash("sha256").update(req.file.buffer).digest("hex"),
+        JSON.stringify({ type: "BASE" }),
+        req.user?.id
+      ]
     );
     const importId = importInsert.rows[0].id as string;
 
@@ -368,7 +374,7 @@ importsRouter.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const summary = await insertOnlyOrderCatalogRows(rows, importId, client);
+      const summary = await upsertOrderCatalogRows(rows, importId, client);
       const consolidatedDescents = await consolidateDescentsFromCatalog(client);
       await client.query(
         `
@@ -399,7 +405,6 @@ importsRouter.post(
           insertedRows: summary.inserted,
           updatedRows: summary.updated,
           rejectedRows: 0,
-          skippedRows: summary.skipped,
           consolidatedDescents
         }
       });
@@ -449,3 +454,4 @@ importsRouter.get("/:id", authRequired, requireScreenAccess("imports"), async (r
   }
   return res.json(result.rows[0]);
 });
+

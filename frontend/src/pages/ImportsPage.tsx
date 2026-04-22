@@ -146,7 +146,7 @@ export function ImportsPage({ user }: { user: User }) {
       stopTicker("base");
       setBaseProgress(100);
       setBaseMessage(
-        `Base importada: ${data.summary.insertedRows} novas, ${data.summary.skippedRows || 0} ignoradas (ja existiam), ${data.summary.consolidatedDescents || 0} descidas consolidadas.`
+        `Base importada: ${data.summary.insertedRows} novas, ${data.summary.updatedRows} atualizadas, ${data.summary.consolidatedDescents || 0} descidas consolidadas.`
       );
       showNotice("success", "Importacao da Base concluida com sucesso.");
       await loadImports();
