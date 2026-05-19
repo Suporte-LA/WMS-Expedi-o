@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { api, buildApiUrl } from "../lib/api";
+import { buildQueueFile, flushOperationalQueue, submitQueuedOperation } from "../lib/offlineQueue";
 import type { DescentRecord, OrderCatalogRecord, User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
 
@@ -77,17 +78,21 @@ export function DescentsPage({ user }: { user: User }) {
     }
     setLoading(true);
     try {
-      const form = new FormData();
-      form.append("orderNumber", normalizeOrder(orderNumber));
-      form.append("workDate", workDate);
-      form.append("image", image);
-
-      await api.post("/descents", form, { headers: { "Content-Type": "multipart/form-data" } });
-      setMessage("Pedido descido registrado com sucesso.");
+      const result = await submitQueuedOperation("descent", {
+        orderNumber: normalizeOrder(orderNumber),
+        workDate,
+        image: buildQueueFile(image)
+      });
+      if (result.status === "sent") {
+        setMessage("Pedido descido registrado com sucesso.");
+        await loadRecent();
+      } else {
+        setMessage("Registro salvo localmente e pendente de sincronizacao. Ele sera enviado automaticamente quando a conexao estabilizar.");
+      }
       setOrderNumber("");
       setOrderInfo(null);
       setImage(null);
-      await loadRecent();
+      void flushOperationalQueue();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Falha ao registrar descida.");
     } finally {

@@ -9,6 +9,7 @@ import XLSX from "xlsx";
 const createSchema = z.object({
   orderNumber: z.string().min(1),
   problemType: z.string().min(2),
+  clientRequestId: z.string().min(1).optional(),
   fallbackDescendedUserName: z.string().min(1).optional(),
   finalized: z
     .union([z.string(), z.boolean()])
@@ -39,6 +40,13 @@ errorsRouter.post(
   }
   const normalizedOrder = normalizeOrderNumber(parsed.data.orderNumber);
 
+  if (parsed.data.clientRequestId) {
+    const existing = await pool.query(`SELECT * FROM error_reports WHERE client_request_id = $1 LIMIT 1`, [parsed.data.clientRequestId]);
+    if (existing.rowCount) {
+      return res.status(200).json(existing.rows[0]);
+    }
+  }
+
   const descent = await pool.query(
     `
       SELECT id, descended_by_name, pen_color, created_at
@@ -63,6 +71,7 @@ errorsRouter.post(
         evidence_image_path,
         dock,
         report_date,
+        client_request_id,
         conferente_user_id,
         conferente_name,
         descended_user_name,
@@ -70,7 +79,7 @@ errorsRouter.post(
         descended_at,
         descent_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `,
     [
@@ -80,6 +89,7 @@ errorsRouter.post(
       imagePath,
       parsed.data.dock || null,
       reportDate,
+      parsed.data.clientRequestId || null,
       req.user.id,
       req.user.name,
       descentRow?.descended_by_name || parsed.data.fallbackDescendedUserName || null,

@@ -2,6 +2,7 @@
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./lib/api";
 import { clearAuth, getStoredUser, getToken } from "./lib/auth";
+import { flushOperationalQueue, startOperationalQueueSync } from "./lib/offlineQueue";
 import type { AccessSettings, Role, ScreenKey, User, Workspace } from "./types";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -456,6 +457,10 @@ export default function App() {
   const [permissions, setPermissions] = useState<AccessSettings["permissions"]>(DEFAULT_ACCESS);
 
   useEffect(() => {
+    startOperationalQueueSync();
+  }, []);
+
+  useEffect(() => {
     async function validateSession() {
       const token = getToken();
       if (!token) {
@@ -473,9 +478,12 @@ export default function App() {
         } catch {
           setPermissions(DEFAULT_ACCESS);
         }
-      } catch {
-        clearAuth();
-        setUser(null);
+      } catch (error: any) {
+        const status = error?.response?.status;
+        if (status === 401 || status === 403) {
+          clearAuth();
+          setUser(null);
+        }
       } finally {
         setChecking(false);
       }
@@ -496,6 +504,11 @@ export default function App() {
       }
     }
     loadPermissions();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user || !getToken()) return;
+    void flushOperationalQueue();
   }, [user?.id]);
 
   function logout() {

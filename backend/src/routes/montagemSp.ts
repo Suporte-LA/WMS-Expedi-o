@@ -16,6 +16,7 @@ const boolLike = z
   });
 
 const createSchema = z.object({
+  clientRequestId: z.string().min(1).optional(),
   workDate: z.string().min(1),
   loaderUserName: z.string().min(1).optional(),
   startTime: z.string().optional(),
@@ -111,6 +112,12 @@ montagemSpRouter.post(
     if (!req.user) return res.status(401).json({ message: "Nao autenticado." });
 
     const data = parsed.data;
+    if (data.clientRequestId) {
+      const existing = await pool.query(`SELECT * FROM montagem_sp WHERE client_request_id = $1 LIMIT 1`, [data.clientRequestId]);
+      if (existing.rowCount) {
+        return res.status(200).json(existing.rows[0]);
+      }
+    }
     const hasHelper = Boolean(data.hasHelper);
     if (hasHelper && !data.helperName?.trim()) {
       return res.status(400).json({ message: "Selecione o ajudante." });
@@ -137,18 +144,20 @@ montagemSpRouter.post(
     const result = await pool.query(
       `
         INSERT INTO montagem_sp (
+          client_request_id,
           external_ref, work_date, loader_user_name, start_time, end_time, duration_minutes,
           stops_count, pause_minutes, pause_reason, pallets_count, load_value, volume, weight_kg,
           isopor_qty, has_helper, helper_name, photo_path, notes, created_by_user_id
         )
         VALUES (
-          $1, $2::date, $3, $4::time, $5::time, $6,
-          $7, $8, $9, $10, $11, $12, $13,
-          $14, $15, $16, $17, $18, $19
+          $1, $2, $3::date, $4, $5::time, $6::time, $7,
+          $8, $9, $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19, $20
         )
         RETURNING *
       `,
       [
+        data.clientRequestId || null,
         data.externalRef || null,
         normalizeDate(data.workDate),
         data.loaderUserName || req.user.name,

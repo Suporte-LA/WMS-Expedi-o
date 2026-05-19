@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
+import { buildQueueFile, flushOperationalQueue, submitQueuedOperation } from "../lib/offlineQueue";
 import type { User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
 
@@ -91,18 +92,20 @@ export function ErrorCheckPage({ user }: { user: User }) {
     setLoading(true);
     try {
       const finalProblemType = lookup ? problemType : missingOrderProblem;
-      const form = new FormData();
-      form.append("orderNumber", orderNumber.trim());
-      form.append("problemType", finalProblemType);
-      form.append("finalized", "true");
-      form.append("dock", dock);
-      form.append("reportDate", reportDate || lookup?.work_date?.slice(0, 10) || new Date().toISOString().slice(0, 10));
-      if (!lookup && missingOrderProblem === "Pedido no palete interno") {
-        form.append("fallbackDescendedUserName", "BOX");
+      const result = await submitQueuedOperation("error", {
+        orderNumber: orderNumber.trim(),
+        problemType: finalProblemType,
+        finalized: "true",
+        dock,
+        reportDate: reportDate || lookup?.work_date?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        fallbackDescendedUserName: !lookup && missingOrderProblem === "Pedido no palete interno" ? "BOX" : undefined,
+        image: buildQueueFile(image)
+      });
+      if (result.status === "sent") {
+        setMessage("Erro registrado com sucesso.");
+      } else {
+        setMessage("Erro salvo localmente e pendente de sincronizacao. Ele sera enviado automaticamente quando a conexao estabilizar.");
       }
-      form.append("image", image);
-      await api.post("/errors", form, { headers: { "Content-Type": "multipart/form-data" } });
-      setMessage("Erro registrado com sucesso.");
       setOrderNumber("");
       setLookup(null);
       setDock("");
@@ -110,6 +113,7 @@ export function ErrorCheckPage({ user }: { user: User }) {
       setProblemType("");
       setMissingOrderProblem("");
       setImage(null);
+      void flushOperationalQueue();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Falha ao registrar erro.");
     } finally {

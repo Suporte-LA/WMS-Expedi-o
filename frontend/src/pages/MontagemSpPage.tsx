@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { api, buildApiUrl } from "../lib/api";
+import { buildQueueFile, flushOperationalQueue, submitQueuedOperation } from "../lib/offlineQueue";
 import type { MontagemSpRecord, User } from "../types";
 
 type HelperOption = {
@@ -175,30 +176,36 @@ export function MontagemSpPage({ user }: { user: User }) {
 
     setLoading(true);
     try {
-      const form = new FormData();
-      form.append("workDate", workDate);
-      form.append("loaderUserName", user.name);
-      form.append("startTime", formatTimeFromDate(new Date(sessionStartIso)));
-      form.append("endTime", formatTimeFromDate(new Date(sessionEndIso)));
-      form.append("stopsCount", "0");
-      form.append("pauseMinutes", "0");
-      form.append("pauseEvents", "[]");
+      const payload: Parameters<typeof submitQueuedOperation<"montagem-sp">>[1] = {
+        workDate,
+        loaderUserName: user.name,
+        startTime: formatTimeFromDate(new Date(sessionStartIso)),
+        endTime: formatTimeFromDate(new Date(sessionEndIso)),
+        stopsCount: "0",
+        pauseMinutes: "0",
+        pauseEvents: "[]",
+        hasHelper: String(hasHelper),
+        helperName: hasHelper ? helperName : undefined,
+        notes: notes || undefined,
+        photo: buildQueueFile(photo)
+      };
       if (mode === "complete") {
-        if (palletsCount !== "") form.append("palletsCount", String(palletsCount));
-        if (loadValue !== "") form.append("loadValue", String(loadValue));
-        if (volume !== "") form.append("volume", String(volume));
-        if (weightKg !== "") form.append("weightKg", String(weightKg));
-        if (isoporQty !== "") form.append("isoporQty", String(isoporQty));
+        if (palletsCount !== "") payload.palletsCount = String(palletsCount);
+        if (loadValue !== "") payload.loadValue = String(loadValue);
+        if (volume !== "") payload.volume = String(volume);
+        if (weightKg !== "") payload.weightKg = String(weightKg);
+        if (isoporQty !== "") payload.isoporQty = String(isoporQty);
       }
-      form.append("hasHelper", String(hasHelper));
-      if (hasHelper) form.append("helperName", helperName);
-      if (notes) form.append("notes", notes);
-      form.append("photo", photo);
 
-      await api.post("/montagem-sp", form, { headers: { "Content-Type": "multipart/form-data" } });
-      setMessage(mode === "later" ? "Montagem SP registrada sem os informes finais." : "Montagem SP registrada com sucesso.");
+      const result = await submitQueuedOperation("montagem-sp", payload);
+      if (result.status === "sent") {
+        setMessage(mode === "later" ? "Montagem SP registrada sem os informes finais." : "Montagem SP registrada com sucesso.");
+        await loadList();
+      } else {
+        setMessage("Montagem SP salva localmente e pendente de sincronizacao. Ela sera enviada automaticamente quando a conexao estabilizar.");
+      }
       resetForm();
-      await loadList();
+      void flushOperationalQueue();
     } catch (err: any) {
       setError(err?.response?.data?.message || "Falha ao registrar montagem.");
     } finally {

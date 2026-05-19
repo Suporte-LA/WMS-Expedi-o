@@ -7,7 +7,8 @@ import { writeAuditLog } from "../services/audit.js";
 
 const createSchema = z.object({
   orderNumber: z.string().min(1),
-  workDate: z.string().optional()
+  workDate: z.string().optional(),
+  clientRequestId: z.string().min(1).optional()
 });
 
 const listSchema = z.object({
@@ -45,6 +46,13 @@ descentsRouter.post(
       return res.status(400).json({ message: "Foto do produto e obrigatoria." });
     }
 
+    if (parsed.data.clientRequestId) {
+      const existing = await pool.query(`SELECT * FROM descents WHERE client_request_id = $1 LIMIT 1`, [parsed.data.clientRequestId]);
+      if (existing.rowCount) {
+        return res.status(200).json(existing.rows[0]);
+      }
+    }
+
     const workDate = parsed.data.workDate || new Date().toISOString().slice(0, 10);
     const normalizedOrder = normalizeOrderNumber(parsed.data.orderNumber);
     const imagePath = await persistUploadedImage(req.file, "descents");
@@ -71,12 +79,13 @@ descentsRouter.post(
           pen_color,
           product_image_path,
           work_date,
+          client_request_id,
           lot,
           volume,
           weight_kg,
           route
         )
-        VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9, $10, $11)
         RETURNING *
       `,
       [
@@ -86,6 +95,7 @@ descentsRouter.post(
         userPenColor,
         imagePath,
         workDate,
+        parsed.data.clientRequestId || null,
         orderInfo?.lot ?? null,
         orderInfo?.volume ?? null,
         orderInfo?.weight_kg ?? null,
