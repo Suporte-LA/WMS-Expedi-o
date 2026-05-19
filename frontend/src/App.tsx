@@ -2,7 +2,7 @@
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./lib/api";
 import { clearAuth, getStoredUser, getToken } from "./lib/auth";
-import { flushOperationalQueue, startOperationalQueueSync } from "./lib/offlineQueue";
+import { exportPendingOperations, flushOperationalQueue, getPendingOperationCount, onOperationalQueueChange, startOperationalQueueSync } from "./lib/offlineQueue";
 import type { AccessSettings, Role, ScreenKey, User, Workspace } from "./types";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -455,9 +455,22 @@ export default function App() {
   const [user, setUser] = useState<User | null>(getStoredUser());
   const [checking, setChecking] = useState(true);
   const [permissions, setPermissions] = useState<AccessSettings["permissions"]>(DEFAULT_ACCESS);
+  const [pendingQueueCount, setPendingQueueCount] = useState(0);
+  const [queueSyncing, setQueueSyncing] = useState(false);
 
   useEffect(() => {
     startOperationalQueueSync();
+  }, []);
+
+  useEffect(() => {
+    async function refreshPendingCount() {
+      const total = await getPendingOperationCount();
+      setPendingQueueCount(total);
+    }
+    void refreshPendingCount();
+    return onOperationalQueueChange(() => {
+      void refreshPendingCount();
+    });
   }, []);
 
   useEffect(() => {
@@ -511,6 +524,29 @@ export default function App() {
     void flushOperationalQueue();
   }, [user?.id]);
 
+  async function syncPendingQueueNow() {
+    setQueueSyncing(true);
+    try {
+      await flushOperationalQueue();
+      const total = await getPendingOperationCount();
+      setPendingQueueCount(total);
+    } finally {
+      setQueueSyncing(false);
+    }
+  }
+
+  async function exportPendingQueueNow() {
+    const blob = await exportPendingOperations();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `fila-operacional-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   function logout() {
     clearAuth();
     setUser(null);
@@ -530,5 +566,35 @@ export default function App() {
     );
   }
 
-  return <ProtectedLayout user={user} onLogout={logout} permissions={permissions} />;
+  return (
+    <>
+      {pendingQueueCount > 0 && (
+        <div className="sticky top-0 z-50 border-b border-amber-300 bg-amber-50">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-amber-900">
+              Voce tem <strong>{pendingQueueCount}</strong> envio{pendingQueueCount > 1 ? "s" : ""} pendente{pendingQueueCount > 1 ? "s" : ""}. Eles ficam salvos localmente e serao reenviados automaticamente.
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={syncPendingQueueNow}
+                disabled={queueSyncing}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {queueSyncing ? "Sincronizando..." : "Tentar enviar agora"}
+              </button>
+              <button
+                type="button"
+                onClick={exportPendingQueueNow}
+                className="rounded-xl border border-amber-500 px-4 py-2 text-sm font-semibold text-amber-700"
+              >
+                Exportar dados pendentes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <ProtectedLayout user={user} onLogout={logout} permissions={permissions} />
+    </>
+  );
 }

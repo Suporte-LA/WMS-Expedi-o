@@ -68,6 +68,11 @@ export type QueueItem<T extends OperationType = OperationType> = {
 
 let syncStarted = false;
 let flushPromise: Promise<void> | null = null;
+const QUEUE_EVENT = "wms:queue-changed";
+
+function notifyQueueChanged() {
+  window.dispatchEvent(new CustomEvent(QUEUE_EVENT));
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -123,6 +128,7 @@ export async function enqueueOperation<T extends OperationType>(type: T, payload
     createdAt: new Date().toISOString()
   };
   await withStore("readwrite", (store) => store.put(item));
+  notifyQueueChanged();
   return item;
 }
 
@@ -133,15 +139,65 @@ async function getAllOperations() {
 
 async function updateOperation(item: QueueItem) {
   await withStore("readwrite", (store) => store.put(item));
+  notifyQueueChanged();
 }
 
 async function deleteOperation(id: string) {
   await withStore("readwrite", (store) => store.delete(id));
+  notifyQueueChanged();
 }
 
 export async function getPendingOperationCount() {
   const items = await getAllOperations();
   return items.length;
+}
+
+export async function getPendingOperations() {
+  return getAllOperations();
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function exportPendingOperations() {
+  const items = await getAllOperations();
+  const serialized = await Promise.all(
+    items.map(async (item) => {
+      const payload = { ...item.payload } as Record<string, unknown>;
+      if ("image" in payload && payload.image && typeof payload.image === "object") {
+        const file = payload.image as QueueFile;
+        payload.image = {
+          name: file.name,
+          type: file.type,
+          dataUrl: await blobToBase64(file.blob)
+        };
+      }
+      if ("photo" in payload && payload.photo && typeof payload.photo === "object") {
+        const file = payload.photo as QueueFile;
+        payload.photo = {
+          name: file.name,
+          type: file.type,
+          dataUrl: await blobToBase64(file.blob)
+        };
+      }
+      return {
+        id: item.id,
+        type: item.type,
+        status: item.status,
+        attempts: item.attempts,
+        createdAt: item.createdAt,
+        lastError: item.lastError || "",
+        payload
+      };
+    })
+  );
+  return new Blob([JSON.stringify(serialized, null, 2)], { type: "application/json" });
 }
 
 function appendIfPresent(form: FormData, key: string, value: string | undefined) {
@@ -274,4 +330,9 @@ export function startOperationalQueueSync() {
 
   window.addEventListener("online", run);
   window.setInterval(run, 30000);
+}
+
+export function onOperationalQueueChange(listener: () => void) {
+  window.addEventListener(QUEUE_EVENT, listener);
+  return () => window.removeEventListener(QUEUE_EVENT, listener);
 }
