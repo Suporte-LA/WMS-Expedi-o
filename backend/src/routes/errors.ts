@@ -20,6 +20,16 @@ const createSchema = z.object({
 
 export const errorsRouter = Router();
 
+function errorGroupSql(alias?: string): string {
+  const prefix = alias ? `${alias}.` : "";
+  return `
+    CASE
+      WHEN LOWER(BTRIM(${prefix}conferente_name)) = LOWER('Diego Mamedi') THEN 'G1'
+      ELSE 'G2'
+    END
+  `;
+}
+
 function normalizeOrderNumber(value: string): string {
   const digits = value.replace(/\D/g, "");
   return digits || value.trim();
@@ -117,6 +127,7 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
       problemType: z.string().optional(),
       conferente: z.string().optional(),
       user: z.string().optional(),
+      erro: z.enum(["G1", "G2"]).optional(),
       export: z.enum(["xlsx"]).optional(),
       page: z.coerce.number().int().min(1).default(1),
       pageSize: z.coerce.number().int().min(1).max(200).default(30)
@@ -127,7 +138,7 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
     return res.status(400).json({ message: "Query invalida." });
   }
 
-  const { from, to, problemType, conferente, user, export: exportType, page, pageSize } = parsed.data;
+  const { from, to, problemType, conferente, user, erro, export: exportType, page, pageSize } = parsed.data;
   const filters: string[] = [];
   const values: unknown[] = [];
 
@@ -149,7 +160,11 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
   }
   if (user) {
     values.push(user);
-    filters.push(`e.descended_user_name ILIKE $${values.length}`);
+    filters.push(`COALESCE(e.descended_user_name, 'Sem usuario') ILIKE $${values.length}`);
+  }
+  if (erro) {
+    values.push(erro);
+    filters.push(`${errorGroupSql("e")} = $${values.length}`);
   }
 
   const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
@@ -163,10 +178,7 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
         SELECT
           e.problem_type,
           e.conferente_name,
-          CASE
-            WHEN LOWER(BTRIM(e.conferente_name)) = LOWER('Diego Mamedi') THEN 'G1'
-            ELSE 'G2'
-          END AS erro,
+          ${errorGroupSql("e")} AS erro,
           e.order_number,
           e.descended_user_name,
           e.finalized,
@@ -208,10 +220,7 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
     `
       SELECT
         e.*,
-        CASE
-          WHEN LOWER(BTRIM(e.conferente_name)) = LOWER('Diego Mamedi') THEN 'G1'
-          ELSE 'G2'
-        END AS erro
+        ${errorGroupSql("e")} AS erro
       FROM error_reports e
       ${where}
       ORDER BY e.created_at DESC
@@ -228,7 +237,8 @@ errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"
     .object({
       from: z.string(),
       to: z.string(),
-      user: z.string().optional()
+      user: z.string().optional(),
+      erro: z.enum(["G1", "G2"]).optional()
     })
     .safeParse(req.query);
 
@@ -236,20 +246,25 @@ errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"
     return res.status(400).json({ message: "Query invalida." });
   }
 
-  const { from, to, user } = parsed.data;
+  const { from, to, user, erro } = parsed.data;
   const values: unknown[] = [from, to];
-  const userFilter = user?.trim() ? ` AND COALESCE(descended_user_name, 'Sem usuario') ILIKE $3` : "";
+  const filters = ["report_date BETWEEN $1::date AND $2::date"];
   if (user?.trim()) {
     values.push(user.trim());
+    filters.push(`COALESCE(descended_user_name, 'Sem usuario') ILIKE $${values.length}`);
   }
+  if (erro) {
+    values.push(erro);
+    filters.push(`${errorGroupSql()} = $${values.length}`);
+  }
+  const where = `WHERE ${filters.join(" AND ")}`;
 
   const [byProblem, byConferente, byUser] = await Promise.all([
     pool.query(
       `
         SELECT problem_type, COUNT(*)::int AS total
         FROM error_reports
-        WHERE report_date BETWEEN $1::date AND $2::date
-        ${userFilter}
+        ${where}
         GROUP BY problem_type
         ORDER BY total DESC
       `,
@@ -259,8 +274,7 @@ errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"
       `
         SELECT conferente_name, COUNT(*)::int AS total
         FROM error_reports
-        WHERE report_date BETWEEN $1::date AND $2::date
-        ${userFilter}
+        ${where}
         GROUP BY conferente_name
         ORDER BY total DESC
       `,
@@ -270,8 +284,7 @@ errorsRouter.get("/dashboard", authRequired, requireScreenAccess("error-reports"
       `
         SELECT COALESCE(descended_user_name, 'Sem usuario') AS user_name, COUNT(*)::int AS total
         FROM error_reports
-        WHERE report_date BETWEEN $1::date AND $2::date
-        ${userFilter}
+        ${where}
         GROUP BY COALESCE(descended_user_name, 'Sem usuario')
         ORDER BY total DESC
       `,

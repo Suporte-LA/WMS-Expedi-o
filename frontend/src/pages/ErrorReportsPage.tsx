@@ -15,6 +15,7 @@ function isoDaysAgo(days: number) {
 }
 
 const COLORS = ["#0f766e", "#0ea5e9", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
+type ErrorGroup = "" | "G1" | "G2";
 
 function formatTime(value?: string | null) {
   if (!value) return "-";
@@ -37,6 +38,8 @@ export function ErrorReportsPage() {
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(isoToday());
   const [userFilter, setUserFilter] = useState("");
+  const [erroFilter, setErroFilter] = useState<ErrorGroup>("");
+  const [userOptions, setUserOptions] = useState<ErrorDash["byUser"]>([]);
   const [items, setItems] = useState<ErrorRecord[]>([]);
   const [dash, setDash] = useState<ErrorDash | null>(null);
   const [error, setError] = useState("");
@@ -46,17 +49,25 @@ export function ErrorReportsPage() {
     try {
       const params = new URLSearchParams({ from, to, page: "1", pageSize: "100" });
       const dashParams = new URLSearchParams({ from, to });
+      const optionParams = new URLSearchParams({ from, to });
       if (userFilter.trim()) {
         params.set("user", userFilter.trim());
         dashParams.set("user", userFilter.trim());
       }
+      if (erroFilter) {
+        params.set("erro", erroFilter);
+        dashParams.set("erro", erroFilter);
+        optionParams.set("erro", erroFilter);
+      }
 
-      const [list, dashboard] = await Promise.all([
+      const [list, dashboard, options] = await Promise.all([
         api.get(`/errors?${params.toString()}`),
-        api.get(`/errors/dashboard?${dashParams.toString()}`)
+        api.get(`/errors/dashboard?${dashParams.toString()}`),
+        api.get(`/errors/dashboard?${optionParams.toString()}`)
       ]);
       setItems(list.data.items || []);
       setDash(dashboard.data);
+      setUserOptions(options.data.byUser || []);
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao carregar relatorios de erros.");
     }
@@ -75,6 +86,7 @@ export function ErrorReportsPage() {
     try {
       const params = new URLSearchParams({ from, to, export: "xlsx" });
       if (userFilter.trim()) params.set("user", userFilter.trim());
+      if (erroFilter) params.set("erro", erroFilter);
       const response = await api.get(`/errors?${params.toString()}`, { responseType: "blob" });
       const blob = new Blob([response.data], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -101,15 +113,22 @@ export function ErrorReportsPage() {
             Exportar XLSX
           </button>
         </div>
-        <div className="grid md:grid-cols-3 gap-3">
-        <input className="border rounded-xl px-3 py-2" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        <input className="border rounded-xl px-3 py-2" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        <input
-          className="border rounded-xl px-3 py-2"
-          placeholder="Filtrar por usuário"
-          value={userFilter}
-          onChange={(e) => setUserFilter(e.target.value)}
-        />
+        <div className="grid md:grid-cols-4 gap-3">
+          <input className="border rounded-xl px-3 py-2" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input className="border rounded-xl px-3 py-2" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <select className="border rounded-xl px-3 py-2 bg-white" value={erroFilter} onChange={(e) => setErroFilter(e.target.value as ErrorGroup)}>
+            <option value="">Todos os erros</option>
+            <option value="G1">G1</option>
+            <option value="G2">G2</option>
+          </select>
+          <select className="border rounded-xl px-3 py-2 bg-white" value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+            <option value="">Todos os usuarios</option>
+            {userOptions.map((user) => (
+              <option key={user.user_name} value={user.user_name}>
+                {user.user_name} ({user.total})
+              </option>
+            ))}
+          </select>
         </div>
       </form>
 
@@ -130,7 +149,7 @@ export function ErrorReportsPage() {
           </ResponsiveContainer>
         </div>
         <div className="bg-white rounded-2xl p-4 shadow-sm h-72">
-          <h3 className="font-semibold mb-2">Erros por usuário que cometeu</h3>
+          <h3 className="font-semibold mb-2">Erros por usuario que cometeu</h3>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={dash?.byUser || []}>
               <XAxis dataKey="user_name" />
