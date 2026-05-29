@@ -149,9 +149,9 @@ export function ErrorReportsPage() {
             <tr className="text-left border-b">
               <th className="py-2">Problema</th>
               <th>Conferente</th>
+              <th>Erro</th>
               <th>Pedido</th>
               <th>Usuario</th>
-              <th>Cor</th>
               <th>Finalizado</th>
               <th>Data</th>
               <th>Horario</th>
@@ -163,9 +163,9 @@ export function ErrorReportsPage() {
               <tr key={item.id} className="border-b">
                 <td className="py-2">{item.problem_type}</td>
                 <td>{item.conferente_name}</td>
+                <td>{item.erro}</td>
                 <td>{item.order_number}</td>
                 <td>{item.descended_user_name || "-"}</td>
-                <td>{item.pen_color || "-"}</td>
                 <td>{item.finalized ? "SIM" : "NAO"}</td>
                 <td>{item.report_date?.slice(0, 10)}</td>
                 <td>{formatTime(item.created_at)}</td>

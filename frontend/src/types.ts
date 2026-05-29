@@ -65,8 +65,8 @@ export type ErrorRecord = {
   dock?: string | null;
   report_date: string;
   conferente_name: string;
+  erro: "G1" | "G2";
   descended_user_name?: string | null;
-  pen_color?: string | null;
   descended_at?: string | null;
   created_at: string;
 };

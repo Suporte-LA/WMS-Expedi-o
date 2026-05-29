@@ -163,9 +163,12 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
         SELECT
           e.problem_type,
           e.conferente_name,
+          CASE
+            WHEN LOWER(BTRIM(e.conferente_name)) = LOWER('Diego Mamedi') THEN 'G1'
+            ELSE 'G2'
+          END AS erro,
           e.order_number,
           e.descended_user_name,
-          e.pen_color,
           e.finalized,
           e.dock,
           e.report_date,
@@ -182,9 +185,9 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
     const worksheetRows = exportRows.rows.map((r) => ({
       Problema: r.problem_type,
       Conferente: r.conferente_name,
+      Erro: r.erro,
       Pedido: r.order_number,
       UsuarioDesceu: r.descended_user_name || "",
-      CorCaneta: r.pen_color || "",
       Finalizado: r.finalized ? "SIM" : "NAO",
       Doca: r.dock || r.route || "",
       Volume: r.volume ?? "",
@@ -203,7 +206,12 @@ errorsRouter.get("/", authRequired, requireScreenAccess("error-reports"), async 
 
   const result = await pool.query(
     `
-      SELECT e.*
+      SELECT
+        e.*,
+        CASE
+          WHEN LOWER(BTRIM(e.conferente_name)) = LOWER('Diego Mamedi') THEN 'G1'
+          ELSE 'G2'
+        END AS erro
       FROM error_reports e
       ${where}
       ORDER BY e.created_at DESC
