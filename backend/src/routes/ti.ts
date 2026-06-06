@@ -75,6 +75,20 @@ const normalizeText = (value: string) =>
     .toLowerCase()
     .trim();
 
+function resolveDeviceScope(
+  maintenanceItem: string,
+  phoneModel?: string | null,
+  tabletModel?: string | null
+): "celular" | "tablet" | "geral" {
+  if (textLike(tabletModel)) return "tablet";
+  if (textLike(phoneModel)) return "celular";
+
+  const normalized = normalizeText(maintenanceItem || "");
+  if (normalized.includes("tablet")) return "tablet";
+  if (normalized.includes("celular") || normalized.includes("aparelho")) return "celular";
+  return "geral";
+}
+
 async function findTiStockProductForModel(
   client: any,
   modelRef: string,
@@ -883,6 +897,8 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
           r.operation,
           r.maintenance_item,
           r.submitted_at,
+          r.phone_model,
+          r.tablet_model,
           to_char((r.submitted_at AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS local_date
         FROM ti_device_records r
         ${where}
@@ -900,10 +916,11 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     });
   }
 
-  const monthlyMap = new Map<string, { month: string; name: string; operation: string; maintenance_item: string; total_count: number }>();
-  for (const row of recordsRes.rows as Array<{ local_date: string; name: string; operation: string; maintenance_item: string }>) {
+  const monthlyMap = new Map<string, { month: string; name: string; operation: string; maintenance_item: string; device_scope: "celular" | "tablet" | "geral"; total_count: number }>();
+  for (const row of recordsRes.rows as Array<{ local_date: string; name: string; operation: string; maintenance_item: string; phone_model?: string | null; tablet_model?: string | null }>) {
     const month = (row.local_date || "").slice(0, 7);
-    const key = `${month}||${row.name}||${row.operation}||${row.maintenance_item}`;
+    const deviceScope = resolveDeviceScope(row.maintenance_item, row.phone_model, row.tablet_model);
+    const key = `${month}||${row.name}||${row.operation}||${row.maintenance_item}||${deviceScope}`;
     const current = monthlyMap.get(key);
     if (current) {
       current.total_count += 1;
@@ -913,6 +930,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
         name: row.name,
         operation: row.operation,
         maintenance_item: row.maintenance_item,
+        device_scope: deviceScope,
         total_count: 1
       });
     }
@@ -921,14 +939,16 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     if (a.month !== b.month) return b.month.localeCompare(a.month);
     if (a.operation !== b.operation) return a.operation.localeCompare(b.operation);
     if (a.name !== b.name) return a.name.localeCompare(b.name);
+    if (a.device_scope !== b.device_scope) return a.device_scope.localeCompare(b.device_scope);
     return a.maintenance_item.localeCompare(b.maintenance_item);
   });
 
   const reference = new Date(`${refDate}T12:00:00-03:00`);
   const fromDate = from ? new Date(`${from}T00:00:00-03:00`) : null;
-  const grouped = new Map<string, { name: string; operation: string; maintenance_item: string; localDates: string[]; lastDate: string }>();
-  for (const row of recordsRes.rows as Array<{ local_date: string; name: string; operation: string; maintenance_item: string }>) {
-    const key = `${row.name}||${row.operation}||${row.maintenance_item}`;
+  const grouped = new Map<string, { name: string; operation: string; maintenance_item: string; device_scope: "celular" | "tablet" | "geral"; localDates: string[]; lastDate: string }>();
+  for (const row of recordsRes.rows as Array<{ local_date: string; name: string; operation: string; maintenance_item: string; phone_model?: string | null; tablet_model?: string | null }>) {
+    const deviceScope = resolveDeviceScope(row.maintenance_item, row.phone_model, row.tablet_model);
+    const key = `${row.name}||${row.operation}||${row.maintenance_item}||${deviceScope}`;
     const existing = grouped.get(key);
     if (existing) {
       existing.localDates.push(row.local_date);
@@ -938,6 +958,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
         name: row.name,
         operation: row.operation,
         maintenance_item: row.maintenance_item,
+        device_scope: deviceScope,
         localDates: [row.local_date],
         lastDate: row.local_date
       });
@@ -958,6 +979,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
       name: group.name,
       operation: group.operation,
       maintenance_item: group.maintenance_item,
+      device_scope: group.device_scope,
       last_date: group.lastDate,
       months_limit: conf.months,
       max_count: conf.max,
@@ -970,6 +992,7 @@ tiRouter.get("/control", authRequired, async (req: AuthenticatedRequest, res) =>
     if (a.status !== b.status) return a.status === "fora_do_limite" ? -1 : 1;
     if (a.operation !== b.operation) return a.operation.localeCompare(b.operation);
     if (a.name !== b.name) return a.name.localeCompare(b.name);
+    if (a.device_scope !== b.device_scope) return a.device_scope.localeCompare(b.device_scope);
     return a.maintenance_item.localeCompare(b.maintenance_item);
   });
 

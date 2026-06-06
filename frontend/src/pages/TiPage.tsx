@@ -795,6 +795,7 @@ export function TiPage() {
                     <th className="py-1">Nome</th>
                     <th>Operacao</th>
                     <th>Manutencao</th>
+                    <th>Aparelho</th>
                     <th>Qtde</th>
                     <th>Janela (meses)</th>
                     <th>Limite</th>
@@ -807,6 +808,13 @@ export function TiPage() {
                       <td className="py-1">{row.name}</td>
                       <td>{row.operation}</td>
                       <td>{row.maintenance_item}</td>
+                      <td>
+                        {row.device_scope === "tablet"
+                          ? "Tablet"
+                          : row.device_scope === "celular"
+                            ? "Celular"
+                            : "Geral"}
+                      </td>
                       <td>{row.total_count}</td>
                       <td>{row.months_limit}</td>
                       <td>{row.max_count}</td>
@@ -817,7 +825,7 @@ export function TiPage() {
                   ))}
                   {!limits.length && (
                     <tr>
-                      <td colSpan={7} className="py-2 text-slate-500">Nenhum registro no periodo.</td>
+                      <td colSpan={8} className="py-2 text-slate-500">Nenhum registro no periodo.</td>
                     </tr>
                   )}
                 </tbody>
@@ -833,6 +841,7 @@ export function TiPage() {
                     <th>Nome</th>
                     <th>Operacao</th>
                     <th>Manutencao</th>
+                    <th>Aparelho</th>
                     <th>Qtde</th>
                   </tr>
                 </thead>
@@ -843,12 +852,19 @@ export function TiPage() {
                       <td>{row.name}</td>
                       <td>{row.operation}</td>
                       <td>{row.maintenance_item}</td>
+                      <td>
+                        {row.device_scope === "tablet"
+                          ? "Tablet"
+                          : row.device_scope === "celular"
+                            ? "Celular"
+                            : "Geral"}
+                      </td>
                       <td>{row.total_count}</td>
                     </tr>
                   ))}
                   {!monthly.length && (
                     <tr>
-                      <td colSpan={5} className="py-2 text-slate-500">Nenhum indicador no periodo.</td>
+                      <td colSpan={6} className="py-2 text-slate-500">Nenhum indicador no periodo.</td>
                     </tr>
                   )}
                 </tbody>
