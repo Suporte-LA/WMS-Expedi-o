@@ -37,6 +37,11 @@ const dockAssignmentSchema = z.object({
   dockPosition: z.enum(["frente", "tras"])
 });
 
+const frozenOrderSchema = z.object({
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  orderNumber: z.string().trim().min(1)
+});
+
 export const descentsRouter = Router();
 
 function normalizeOrderNumber(value: string): string {
@@ -60,7 +65,11 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
   const filters = [
     `c.base_date = ${deliveryDateSql}`,
     `COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'`,
-    `COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`
+    `COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`,
+    `NOT EXISTS (
+      SELECT 1 FROM frozen_order_classifications f
+      WHERE f.work_date = $1::date AND f.order_number = c.order_number
+    )`
   ];
 
   if (query.order) {
@@ -324,6 +333,10 @@ descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("desce
           AND TRIM(c.route) <> ''
           AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
           AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
+          AND NOT EXISTS (
+            SELECT 1 FROM frozen_order_classifications f
+            WHERE f.work_date = $1::date AND f.order_number = c.order_number
+          )
           AND c.base_date = (
             $1::date + CASE EXTRACT(ISODOW FROM $1::date)::int
               WHEN 5 THEN 3
@@ -405,6 +418,68 @@ descentsRouter.delete(
   }
 );
 
+descentsRouter.post(
+  "/closing-report/cg",
+  authRequired,
+  requireScreenAccess("descents"),
+  requireRole(["admin", "supervisor"]),
+  async (req: AuthenticatedRequest, res) => {
+    const parsed = frozenOrderSchema.safeParse(req.body);
+    if (!parsed.success || !req.user) {
+      return res.status(400).json({ message: "Informe o pedido e a data do turno." });
+    }
+    const orderNumber = normalizeOrderNumber(parsed.data.orderNumber);
+    const catalog = await pool.query(
+      `SELECT 1 FROM order_catalog
+       WHERE order_number = $1
+         AND base_date = ($2::date + CASE EXTRACT(ISODOW FROM $2::date)::int WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1 END)
+       LIMIT 1`,
+      [orderNumber, parsed.data.workDate]
+    );
+    if (!catalog.rowCount) {
+      return res.status(422).json({ message: "Pedido nao pertence a referencia deste turno." });
+    }
+    const result = await pool.query(
+      `INSERT INTO frozen_order_classifications (
+         work_date, order_number, classified_by_user_id, classified_by_name
+       ) VALUES ($1::date, $2, $3, $4)
+       ON CONFLICT (work_date, order_number) DO UPDATE SET
+         classified_by_user_id = EXCLUDED.classified_by_user_id,
+         classified_by_name = EXCLUDED.classified_by_name,
+         created_at = now()
+       RETURNING *`,
+      [parsed.data.workDate, orderNumber, req.user.id, req.user.name]
+    );
+    await writeAuditLog({
+      userId: req.user.id,
+      action: "FROZEN_ORDER_CLASSIFY",
+      meta: { workDate: parsed.data.workDate, orderNumber }
+    });
+    return res.status(201).json(result.rows[0]);
+  }
+);
+
+descentsRouter.delete(
+  "/closing-report/cg/:orderNumber",
+  authRequired,
+  requireScreenAccess("descents"),
+  requireRole(["admin", "supervisor"]),
+  async (req: AuthenticatedRequest, res) => {
+    const workDate = typeof req.query.date === "string" ? req.query.date : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+      return res.status(400).json({ message: "Informe a data do turno." });
+    }
+    const orderNumber = normalizeOrderNumber(String(req.params.orderNumber));
+    const result = await pool.query(
+      `DELETE FROM frozen_order_classifications WHERE work_date = $1::date AND order_number = $2 RETURNING id`,
+      [workDate, orderNumber]
+    );
+    if (!result.rowCount) return res.status(404).json({ message: "Classificacao CG nao encontrada." });
+    await writeAuditLog({ userId: req.user?.id, action: "FROZEN_ORDER_UNCLASSIFY", meta: { workDate, orderNumber } });
+    return res.status(204).send();
+  }
+);
+
 descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descents"), async (req, res) => {
   const parsed = closingReportSchema.safeParse(req.query);
   if (!parsed.success) {
@@ -412,7 +487,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
   }
 
   const { values, where, deliveryDateSql } = buildClosingReportFilters(parsed.data);
-  const [summary, pending, unexpected, unexpectedItems, duplicates, baseInfo, routeProgress] = await Promise.all([
+  const [summary, pending, unexpected, unexpectedItems, duplicates, baseInfo, routeProgress, frozenOrders] = await Promise.all([
     pool.query(
       `
         SELECT
@@ -504,6 +579,13 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
        FROM order_catalog c WHERE ${where}
        GROUP BY COALESCE(NULLIF(TRIM(c.route), ''), 'SEM ROTA') ORDER BY route`,
       values
+    ),
+    pool.query(
+      `SELECT order_number, classified_by_name, created_at
+       FROM frozen_order_classifications
+       WHERE work_date = $1::date
+       ORDER BY created_at DESC`,
+      [parsed.data.date]
     )
   ]);
 
@@ -526,6 +608,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
       duplicates: duplicates.rows,
       routes_without_dock: Number(baseInfo.rows[0]?.routes_without_dock || 0)
     },
+    frozen_orders: frozenOrders.rows,
     route_progress: routeProgress.rows.map((row) => ({
       ...row,
       pending_orders: Number(row.expected_orders) - Number(row.scanned_orders),

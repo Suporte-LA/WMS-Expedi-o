@@ -382,7 +382,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               path="/descent-reports"
               element={
                 activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/descent-reports", permissions)
-                  ? <DescentReportsPage />
+                  ? <DescentReportsPage user={user} />
                   : <Navigate to={defaultRoute} replace />
               }
             />

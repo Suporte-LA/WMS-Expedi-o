@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { api, buildApiUrl } from "../lib/api";
-import type { DescentRecord } from "../types";
+import type { DescentRecord, User } from "../types";
 
 type ClosingReportItem = {
   order_number: string;
@@ -54,7 +54,7 @@ function isoDaysAgo(days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-export function DescentReportsPage() {
+export function DescentReportsPage({ user: currentUser }: { user: User }) {
   const [from, setFrom] = useState(isoDaysAgo(30));
   const [to, setTo] = useState(isoToday());
   const [order, setOrder] = useState("");
@@ -76,6 +76,8 @@ export function DescentReportsPage() {
   const [closingExceptions, setClosingExceptions] = useState<ClosingExceptions>({ unexpected: [], duplicates: [], routes_without_dock: 0 });
   const [closingBase, setClosingBase] = useState<{ imported_at: string; filename: string } | null>(null);
   const [routeProgress, setRouteProgress] = useState<RouteProgress[]>([]);
+  const [frozenOrders, setFrozenOrders] = useState<Array<{ order_number: string; classified_by_name: string; created_at: string }>>([]);
+  const [classifyingOrder, setClassifyingOrder] = useState("");
 
   async function load() {
     setLoading(true);
@@ -122,11 +124,39 @@ export function DescentReportsPage() {
       setClosingExceptions(data.exceptions || { unexpected: [], duplicates: [], routes_without_dock: 0 });
       setClosingBase(data.base || null);
       setRouteProgress(data.route_progress || []);
+      setFrozenOrders(data.frozen_orders || []);
       setClosingUpdatedAt(new Date().toLocaleTimeString("pt-BR"));
     } catch (err: unknown) {
       setClosingError(apiErrorMessage(err, "Falha ao carregar o fechamento do turno."));
     } finally {
       setClosingLoading(false);
+    }
+  }
+
+  async function classifyAsFrozen(orderNumber: string) {
+    if (!window.confirm(`Classificar o pedido ${orderNumber} como Congelado (CG) e removê-lo das pendências do Seco?`)) return;
+    setClassifyingOrder(orderNumber);
+    setClosingError("");
+    try {
+      await api.post("/descents/closing-report/cg", { workDate: closingDate, orderNumber });
+      await loadClosingReport();
+    } catch (err: unknown) {
+      setClosingError(apiErrorMessage(err, "Falha ao classificar o pedido como congelado."));
+    } finally {
+      setClassifyingOrder("");
+    }
+  }
+
+  async function undoFrozenClassification(orderNumber: string) {
+    if (!window.confirm(`Desfazer a classificacao CG do pedido ${orderNumber}? Ele voltara para as pendencias do Seco.`)) return;
+    setClassifyingOrder(orderNumber);
+    try {
+      await api.delete(`/descents/closing-report/cg/${encodeURIComponent(orderNumber)}?date=${encodeURIComponent(closingDate)}`);
+      await loadClosingReport();
+    } catch (err: unknown) {
+      setClosingError(apiErrorMessage(err, "Falha ao desfazer a classificacao CG."));
+    } finally {
+      setClassifyingOrder("");
     }
   }
 
@@ -212,13 +242,19 @@ export function DescentReportsPage() {
             <div className="overflow-auto">
               <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">Pedidos nao bipados</h3><span className="text-sm text-slate-600">{closingItems.length} pedidos</span></div>
               <table className="w-full text-sm">
-                <thead><tr className="text-left border-b"><th className="py-2">Pedido</th><th>Data do turno</th><th>Data da entrega</th><th>Rota</th><th>Lote</th><th>Volumes</th><th>Peso</th><th>Descricao</th></tr></thead>
+                <thead><tr className="text-left border-b"><th className="py-2">Pedido</th><th>Data do turno</th><th>Data da entrega</th><th>Rota</th><th>Lote</th><th>Volumes</th><th>Peso</th><th>Descricao</th><th>Operacao</th></tr></thead>
                 <tbody>
-                  {closingItems.map((item) => <tr key={item.order_number} className="border-b"><td className="py-2 font-medium">{item.order_number}</td><td>{item.operation_date?.slice(0, 10)}</td><td>{item.delivery_date?.slice(0, 10)}</td><td>{item.route || "-"}</td><td>{item.lot || "-"}</td><td>{item.volume ?? "-"}</td><td>{item.weight_kg ?? "-"}</td><td>{item.description || "-"}</td></tr>)}
-                  {!closingItems.length && <tr><td className="py-3 text-slate-500" colSpan={8}>{closingCards.pending_orders === 0 ? "Nenhum pedido pendente para os filtros informados." : "Nenhum registro encontrado."}</td></tr>}
+                  {closingItems.map((item) => <tr key={item.order_number} className="border-b"><td className="py-2 font-medium">{item.order_number}</td><td>{item.operation_date?.slice(0, 10)}</td><td>{item.delivery_date?.slice(0, 10)}</td><td>{item.route || "-"}</td><td>{item.lot || "-"}</td><td>{item.volume ?? "-"}</td><td>{item.weight_kg ?? "-"}</td><td>{item.description || "-"}</td><td>{(currentUser.role === "admin" || currentUser.role === "supervisor") ? <button type="button" disabled={classifyingOrder === item.order_number} onClick={() => classifyAsFrozen(item.order_number)} className="rounded-lg bg-cyan-700 px-3 py-1 font-bold text-white disabled:opacity-50">{classifyingOrder === item.order_number ? "..." : "CG"}</button> : "-"}</td></tr>)}
+                  {!closingItems.length && <tr><td className="py-3 text-slate-500" colSpan={9}>{closingCards.pending_orders === 0 ? "Nenhum pedido pendente para os filtros informados." : "Nenhum registro encontrado."}</td></tr>}
                 </tbody>
               </table>
             </div>
+            {frozenOrders.length > 0 && (
+              <details className="rounded-xl border border-cyan-300 bg-cyan-50 p-3">
+                <summary className="cursor-pointer font-semibold text-cyan-900">Pedidos classificados como CG ({frozenOrders.length})</summary>
+                <div className="mt-2 max-h-48 overflow-auto text-sm">{frozenOrders.map((item) => <div key={item.order_number} className="flex items-center justify-between gap-3 border-b border-cyan-200 py-1"><p><strong>{item.order_number}</strong> — {item.classified_by_name} — {new Date(item.created_at).toLocaleString("pt-BR")}</p><button type="button" onClick={() => undoFrozenClassification(item.order_number)} className="text-xs font-semibold text-red-700 underline">Desfazer CG</button></div>)}</div>
+              </details>
+            )}
           </>
         )}
       </div>
