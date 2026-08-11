@@ -46,7 +46,17 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
       ELSE 1
     END
   )`;
-  const filters = [`c.base_date = ${deliveryDateSql}`];
+  const filters = [
+    `c.base_date = ${deliveryDateSql}`,
+    `c.source_import_id = (
+      SELECT i.id
+      FROM imports i
+      WHERE i.status = 'success'
+        AND i.rejection_report->>'type' = 'BASE'
+      ORDER BY i.imported_at DESC
+      LIMIT 1
+    )`
+  ];
 
   if (query.order) {
     values.push(`%${query.order}%`);
