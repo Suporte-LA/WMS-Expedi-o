@@ -47,7 +47,7 @@ const DEFAULT_PERMISSIONS: Array<{ role: Role; screen_key: Screen; is_enabled: b
   { role: "supervisor", screen_key: "descents", is_enabled: true },
   { role: "supervisor", screen_key: "error-check", is_enabled: true },
   { role: "supervisor", screen_key: "error-reports", is_enabled: true },
-  { role: "supervisor", screen_key: "imports", is_enabled: false },
+  { role: "supervisor", screen_key: "imports", is_enabled: true },
   { role: "supervisor", screen_key: "users", is_enabled: true },
   { role: "supervisor", screen_key: "montagem-sp", is_enabled: true },
   { role: "operator", screen_key: "dashboard", is_enabled: false },

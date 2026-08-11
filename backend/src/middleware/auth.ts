@@ -35,7 +35,7 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
     descents: true,
     "error-check": true,
     "error-reports": true,
-    imports: false,
+    imports: true,
     users: true,
     "montagem-sp": true
   },

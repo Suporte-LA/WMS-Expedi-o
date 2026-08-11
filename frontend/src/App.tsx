@@ -80,7 +80,7 @@ const DEFAULT_ACCESS: AccessSettings["permissions"] = {
     "error-check": true,
     "error-reports": true,
     "montagem-sp": true,
-    imports: false,
+    imports: true,
     users: true
   },
   operator: {
