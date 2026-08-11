@@ -10,7 +10,8 @@ type ClosingReportItem = {
   volume?: number | null;
   weight_kg?: number | null;
   description?: string | null;
-  base_date: string;
+  operation_date: string;
+  delivery_date: string;
 };
 
 type ClosingReportCards = {
@@ -127,7 +128,7 @@ export function DescentReportsPage() {
       <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold">Fechamento do turno</h2>
-          <p className="text-sm text-slate-600">Compare a base importada com os pedidos bipados na mesma data.</p>
+          <p className="text-sm text-slate-600">Compare os pedidos do turno com a entrega do próximo dia útil.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           <input className="border rounded-xl px-3 py-2 md:col-span-2" type="date" value={closingDate} onChange={(e) => setClosingDate(e.target.value)} />
@@ -153,10 +154,10 @@ export function DescentReportsPage() {
             <div className="overflow-auto">
               <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">Pedidos nao bipados</h3><span className="text-sm text-slate-600">{closingItems.length} pedidos</span></div>
               <table className="w-full text-sm">
-                <thead><tr className="text-left border-b"><th className="py-2">Pedido</th><th>Rota</th><th>Lote</th><th>Volumes</th><th>Peso</th><th>Descricao</th></tr></thead>
+                <thead><tr className="text-left border-b"><th className="py-2">Pedido</th><th>Data do turno</th><th>Data da entrega</th><th>Rota</th><th>Lote</th><th>Volumes</th><th>Peso</th><th>Descricao</th></tr></thead>
                 <tbody>
-                  {closingItems.map((item) => <tr key={item.order_number} className="border-b"><td className="py-2 font-medium">{item.order_number}</td><td>{item.route || "-"}</td><td>{item.lot || "-"}</td><td>{item.volume ?? "-"}</td><td>{item.weight_kg ?? "-"}</td><td>{item.description || "-"}</td></tr>)}
-                  {!closingItems.length && <tr><td className="py-3 text-slate-500" colSpan={6}>{closingCards.pending_orders === 0 ? "Nenhum pedido pendente para os filtros informados." : "Nenhum registro encontrado."}</td></tr>}
+                  {closingItems.map((item) => <tr key={item.order_number} className="border-b"><td className="py-2 font-medium">{item.order_number}</td><td>{item.operation_date?.slice(0, 10)}</td><td>{item.delivery_date?.slice(0, 10)}</td><td>{item.route || "-"}</td><td>{item.lot || "-"}</td><td>{item.volume ?? "-"}</td><td>{item.weight_kg ?? "-"}</td><td>{item.description || "-"}</td></tr>)}
+                  {!closingItems.length && <tr><td className="py-3 text-slate-500" colSpan={8}>{closingCards.pending_orders === 0 ? "Nenhum pedido pendente para os filtros informados." : "Nenhum registro encontrado."}</td></tr>}
                 </tbody>
               </table>
             </div>

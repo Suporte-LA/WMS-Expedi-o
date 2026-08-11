@@ -39,7 +39,14 @@ function normalizeOrderNumber(value: string): string {
 
 function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
   const values: unknown[] = [query.date];
-  const filters = ["c.base_date = $1::date"];
+  const deliveryDateSql = `(
+    $1::date + CASE EXTRACT(ISODOW FROM $1::date)::int
+      WHEN 5 THEN 3
+      WHEN 6 THEN 2
+      ELSE 1
+    END
+  )`;
+  const filters = [`c.base_date = ${deliveryDateSql}`];
 
   if (query.order) {
     values.push(`%${query.order}%`);
@@ -54,7 +61,7 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
     filters.push(`COALESCE(c.lot, '') ILIKE $${values.length}`);
   }
 
-  return { values, where: filters.join(" AND ") };
+  return { values, where: filters.join(" AND "), deliveryDateSql };
 }
 
 descentsRouter.post(
@@ -254,7 +261,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
     return res.status(400).json({ message: "Informe uma data valida para o fechamento." });
   }
 
-  const { values, where } = buildClosingReportFilters(parsed.data);
+  const { values, where, deliveryDateSql } = buildClosingReportFilters(parsed.data);
   const [summary, pending] = await Promise.all([
     pool.query(
       `
@@ -263,12 +270,12 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
           COUNT(*) FILTER (WHERE EXISTS (
             SELECT 1 FROM descents d
             WHERE d.order_number = c.order_number
-              AND d.work_date = c.base_date
+              AND d.work_date = $1::date
           ))::int AS scanned_orders,
           COUNT(*) FILTER (WHERE NOT EXISTS (
             SELECT 1 FROM descents d
             WHERE d.order_number = c.order_number
-              AND d.work_date = c.base_date
+              AND d.work_date = $1::date
           ))::int AS pending_orders
         FROM order_catalog c
         WHERE ${where}
@@ -277,13 +284,16 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
     ),
     pool.query(
       `
-        SELECT c.order_number, c.route, c.lot, c.volume, c.weight_kg, c.description, c.base_date
+        SELECT
+          c.order_number, c.route, c.lot, c.volume, c.weight_kg, c.description,
+          $1::date AS operation_date,
+          ${deliveryDateSql} AS delivery_date
         FROM order_catalog c
         WHERE ${where}
           AND NOT EXISTS (
             SELECT 1 FROM descents d
             WHERE d.order_number = c.order_number
-              AND d.work_date = c.base_date
+              AND d.work_date = $1::date
           )
         ORDER BY c.route NULLS LAST, c.order_number
       `,
@@ -301,6 +311,8 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
       pending_orders: Number(cards?.pending_orders || 0),
       completion_percentage: expected ? Number(((scanned / expected) * 100).toFixed(1)) : 0
     },
+    operation_date: parsed.data.date,
+    delivery_date: pending.rows[0]?.delivery_date || null,
     items: pending.rows
   });
 });
@@ -311,16 +323,19 @@ descentsRouter.get("/closing-report/export", authRequired, requireScreenAccess("
     return res.status(400).json({ message: "Informe uma data valida para o fechamento." });
   }
 
-  const { values, where } = buildClosingReportFilters(parsed.data);
+  const { values, where, deliveryDateSql } = buildClosingReportFilters(parsed.data);
   const result = await pool.query(
     `
-      SELECT c.order_number, c.route, c.lot, c.volume, c.weight_kg, c.description, c.base_date
+      SELECT
+        c.order_number, c.route, c.lot, c.volume, c.weight_kg, c.description,
+        $1::date AS operation_date,
+        ${deliveryDateSql} AS delivery_date
       FROM order_catalog c
       WHERE ${where}
         AND NOT EXISTS (
           SELECT 1 FROM descents d
           WHERE d.order_number = c.order_number
-            AND d.work_date = c.base_date
+            AND d.work_date = $1::date
         )
       ORDER BY c.route NULLS LAST, c.order_number
     `,
@@ -334,12 +349,13 @@ descentsRouter.get("/closing-report/export", authRequired, requireScreenAccess("
     Volumes: row.volume ?? "",
     "Peso (kg)": row.weight_kg ?? "",
     Descricao: row.description || "",
-    Data: String(row.base_date).slice(0, 10),
+    "Data do turno": String(row.operation_date).slice(0, 10),
+    "Data da entrega": String(row.delivery_date).slice(0, 10),
     Situacao: "Nao bipado"
   }));
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
-  worksheet["!cols"] = [12, 14, 12, 10, 12, 40, 12, 14].map((wch) => ({ wch }));
+  worksheet["!cols"] = [12, 14, 12, 10, 12, 40, 14, 16, 14].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(workbook, worksheet, "Nao bipados");
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

@@ -113,11 +113,12 @@ function parseDateValue(value: unknown): Date | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
 
-  const brMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const brMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (brMatch) {
     const day = Number(brMatch[1]);
     const month = Number(brMatch[2]) - 1;
-    const year = Number(brMatch[3]);
+    const parsedYear = Number(brMatch[3]);
+    const year = brMatch[3].length === 2 ? 2000 + parsedYear : parsedYear;
     const date = new Date(Date.UTC(year, month, day));
     if (!Number.isNaN(date.getTime())) return date;
   }
@@ -125,6 +126,18 @@ function parseDateValue(value: unknown): Date | undefined {
   const iso = new Date(trimmed);
   if (!Number.isNaN(iso.getTime())) return iso;
   return undefined;
+}
+
+function parseOrderCatalogDate(value: unknown): Date | undefined {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    // O ExportFileOut grava datas brasileiras ambiguas como data Excel no padrao americano.
+    // Ex.: 12/08/2026 chega como 2026-12-08; a data operacional correta e 2026-08-12.
+    const year = value.getUTCFullYear();
+    const sourceMonth = value.getUTCMonth() + 1;
+    const sourceDay = value.getUTCDate();
+    return new Date(Date.UTC(year, sourceDay - 1, sourceMonth));
+  }
+  return parseDateValue(value);
 }
 
 function normalizeNullableString(value: unknown): string | null {
@@ -164,7 +177,7 @@ export function parseOrderCatalogFile({ filename, fileBuffer }: Omit<ParseParams
       trim: true
     }) as Record<string, unknown>[];
   } else if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
-    const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+    const workbook = XLSX.read(fileBuffer, { type: "buffer", cellDates: true });
     const preferred = ["Base", "BASE", "Pedidos Base"];
     let selected = preferred.find((name) => workbook.Sheets[name]);
 
@@ -201,7 +214,7 @@ export function parseOrderCatalogFile({ filename, fileBuffer }: Omit<ParseParams
       weight_kg: normalizeNullableNumber(normalized["peso"] ?? normalized["kg"] ?? normalized["weight"]),
       route: normalizeNullableString(normalized["rota"] ?? normalized["route"]),
       description: normalizeNullableString(normalized["descricao"] ?? normalized["description"]),
-      base_date: parseDateValue(normalized["data"] ?? normalized["date"]) ?? null
+      base_date: parseOrderCatalogDate(normalized["data"] ?? normalized["date"]) ?? null
     });
   }
 
