@@ -59,14 +59,6 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
   )`;
   const filters = [
     `c.base_date = ${deliveryDateSql}`,
-    `c.source_import_id = (
-      SELECT i.id
-      FROM imports i
-      WHERE i.status = 'success'
-        AND i.rejection_report->>'type' = 'BASE'
-      ORDER BY i.imported_at DESC
-      LIMIT 1
-    )`,
     `COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'`,
     `COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`
   ];
@@ -127,11 +119,6 @@ descentsRouter.post(
             $2::date + CASE EXTRACT(ISODOW FROM $2::date)::int
               WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1
             END
-          )
-          AND c.source_import_id = (
-            SELECT id FROM imports
-            WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
-            ORDER BY imported_at DESC LIMIT 1
           )
           AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
           AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
@@ -327,20 +314,13 @@ descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("desce
   }
   const result = await pool.query(
     `
-      WITH latest_base AS (
-        SELECT id
-        FROM imports
-        WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
-        ORDER BY imported_at DESC
-        LIMIT 1
-      ), routes AS (
+      WITH routes AS (
         SELECT
           TRIM(c.route) AS route_code,
           COUNT(*)::int AS orders_count,
           MIN(NULLIF(TRIM(c.description), '')) AS route_description
-        FROM order_catalog c, latest_base i
-        WHERE c.source_import_id = i.id
-          AND c.route IS NOT NULL
+        FROM order_catalog c
+        WHERE c.route IS NOT NULL
           AND TRIM(c.route) <> ''
           AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
           AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
@@ -479,11 +459,6 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
             FROM order_catalog c
             WHERE c.order_number = d.order_number
               AND c.base_date = ${deliveryDateSql}
-              AND c.source_import_id = (
-                SELECT i.id FROM imports i
-                WHERE i.status = 'success' AND i.rejection_report->>'type' = 'BASE'
-                ORDER BY i.imported_at DESC LIMIT 1
-              )
           )
       `,
       [parsed.data.date]
@@ -496,7 +471,6 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
          AND NOT EXISTS (
            SELECT 1 FROM order_catalog c
            WHERE c.order_number = d.order_number AND c.base_date = ${deliveryDateSql}
-             AND c.source_import_id = (SELECT id FROM imports WHERE status = 'success' AND rejection_report->>'type' = 'BASE' ORDER BY imported_at DESC LIMIT 1)
          )
        GROUP BY d.order_number ORDER BY scanned_at`,
       [parsed.data.date]
@@ -509,17 +483,17 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
       [parsed.data.date]
     ),
     pool.query(
-      `SELECT i.imported_at, i.filename,
+      `SELECT MAX(i.imported_at) AS imported_at,
+              (ARRAY_AGG(i.filename ORDER BY i.imported_at DESC))[1] AS filename,
               COUNT(DISTINCT c.route) FILTER (
                 WHERE c.route IS NOT NULL AND TRIM(c.route) <> '' AND d.id IS NULL
               )::int AS routes_without_dock
-       FROM imports i
-       LEFT JOIN order_catalog c ON c.source_import_id = i.id AND c.base_date = ${deliveryDateSql}
-         AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
-         AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
+       FROM order_catalog c
+       JOIN imports i ON i.id = c.source_import_id
        LEFT JOIN daily_dock_assignments d ON d.work_date = $1::date AND d.route_code = UPPER(TRIM(c.route))
-       WHERE i.id = (SELECT id FROM imports WHERE status = 'success' AND rejection_report->>'type' = 'BASE' ORDER BY imported_at DESC LIMIT 1)
-       GROUP BY i.id, i.imported_at, i.filename`,
+       WHERE c.base_date = ${deliveryDateSql}
+         AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
+         AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`,
       [parsed.data.date]
     ),
     pool.query(
@@ -641,11 +615,6 @@ descentsRouter.get("/catalog/:orderNumber", authRequired, requireScreenAccess("d
           $2::date + CASE EXTRACT(ISODOW FROM $2::date)::int
             WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1
           END
-        )
-        AND c.source_import_id = (
-          SELECT id FROM imports
-          WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
-          ORDER BY imported_at DESC LIMIT 1
         )
         AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
         AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
