@@ -19,5 +19,6 @@ export function buildApiUrl(path: string) {
   if (!path) return apiBaseUrl;
   if (/^https?:\/\//i.test(path)) return path;
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  return `${apiBaseUrl}${normalized}`;
+  const cacheVersion = normalized.startsWith("/uploads/") ? "?v=20260811-2" : "";
+  return `${apiBaseUrl}${normalized}${cacheVersion}`;
 }
