@@ -33,7 +33,7 @@ const closingReportSchema = z.object({
 const dockAssignmentSchema = z.object({
   workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   routeCode: z.string().trim().min(1).max(80),
-  routeName: z.string().trim().min(1).max(160),
+  routeName: z.string().trim().min(1).max(160).optional(),
   dockPosition: z.enum(["frente", "tras"])
 });
 
@@ -279,10 +279,42 @@ descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("desce
   }
   const result = await pool.query(
     `
-      SELECT id, work_date, route_code, route_name, dock_position, created_by_name, created_at, updated_at
-      FROM daily_dock_assignments
-      WHERE work_date = $1::date
-      ORDER BY route_code, route_name
+      WITH latest_base AS (
+        SELECT id
+        FROM imports
+        WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
+        ORDER BY imported_at DESC
+        LIMIT 1
+      ), routes AS (
+        SELECT TRIM(c.route) AS route_code, COUNT(*)::int AS orders_count
+        FROM order_catalog c, latest_base i
+        WHERE c.source_import_id = i.id
+          AND c.route IS NOT NULL
+          AND TRIM(c.route) <> ''
+          AND c.base_date = (
+            $1::date + CASE EXTRACT(ISODOW FROM $1::date)::int
+              WHEN 5 THEN 3
+              WHEN 6 THEN 2
+              ELSE 1
+            END
+          )
+        GROUP BY TRIM(c.route)
+      )
+      SELECT
+        d.id,
+        $1::date AS work_date,
+        r.route_code,
+        COALESCE(d.route_name, r.route_code) AS route_name,
+        d.dock_position,
+        COALESCE(d.created_by_name, '') AS created_by_name,
+        d.created_at,
+        d.updated_at,
+        r.orders_count
+      FROM routes r
+      LEFT JOIN daily_dock_assignments d
+        ON d.work_date = $1::date
+       AND d.route_code = UPPER(r.route_code)
+      ORDER BY r.route_code
     `,
     [parsed.data.date]
   );
@@ -315,7 +347,7 @@ descentsRouter.post(
           updated_at = now()
         RETURNING *
       `,
-      [parsed.data.workDate, routeCode, parsed.data.routeName, parsed.data.dockPosition, req.user.id, req.user.name]
+      [parsed.data.workDate, routeCode, parsed.data.routeName || routeCode, parsed.data.dockPosition, req.user.id, req.user.name]
     );
     await writeAuditLog({
       userId: req.user.id,

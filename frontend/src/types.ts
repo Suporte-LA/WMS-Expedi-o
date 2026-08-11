@@ -57,14 +57,15 @@ export type OrderCatalogRecord = {
 };
 
 export type DailyDockAssignment = {
-  id: string;
+  id?: string | null;
   work_date: string;
   route_code: string;
   route_name: string;
-  dock_position: "frente" | "tras";
+  dock_position?: "frente" | "tras" | null;
   created_by_name: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  orders_count: number;
 };
 
 export type ErrorRecord = {

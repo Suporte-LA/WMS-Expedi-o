@@ -27,9 +27,6 @@ export function DescentsPage({ user }: { user: User }) {
   const [records, setRecords] = useState<DescentRecord[]>([]);
   const [dockModalOpen, setDockModalOpen] = useState(false);
   const [dockAssignments, setDockAssignments] = useState<DailyDockAssignment[]>([]);
-  const [dockRouteCode, setDockRouteCode] = useState("");
-  const [dockRouteName, setDockRouteName] = useState("");
-  const [dockPosition, setDockPosition] = useState<"frente" | "tras">("frente");
   const [dockLoading, setDockLoading] = useState(false);
   const [dockError, setDockError] = useState("");
   const lookupSeqRef = useRef(0);
@@ -55,19 +52,16 @@ export function DescentsPage({ user }: { user: User }) {
     }
   }
 
-  async function saveDockAssignment(e: FormEvent) {
-    e.preventDefault();
+  async function saveDockAssignment(item: DailyDockAssignment, dockPosition: "frente" | "tras") {
     setDockLoading(true);
     setDockError("");
     try {
       await api.post("/descents/dock-assignments", {
         workDate,
-        routeCode: dockRouteCode,
-        routeName: dockRouteName,
+        routeCode: item.route_code,
+        routeName: item.route_name || item.route_code,
         dockPosition
       });
-      setDockRouteCode("");
-      setDockRouteName("");
       await loadDockAssignments();
     } catch (err: unknown) {
       setDockError(apiErrorMessage(err, "Falha ao salvar o registro de doca."));
@@ -76,7 +70,8 @@ export function DescentsPage({ user }: { user: User }) {
     }
   }
 
-  async function deleteDockAssignment(id: string) {
+  async function deleteDockAssignment(id?: string | null) {
+    if (!id) return;
     setDockError("");
     try {
       await api.delete(`/descents/dock-assignments/${id}`);
@@ -87,7 +82,9 @@ export function DescentsPage({ user }: { user: User }) {
   }
 
   const currentDock = orderInfo?.route
-    ? dockAssignments.find((item) => item.route_code.trim().toLowerCase() === orderInfo.route?.trim().toLowerCase())
+    ? dockAssignments.find(
+        (item) => item.dock_position && item.route_code.trim().toLowerCase() === orderInfo.route?.trim().toLowerCase()
+      )
     : undefined;
 
   async function lookupOrder(order: string) {
@@ -306,18 +303,11 @@ export function DescentsPage({ user }: { user: User }) {
               <div><h2 className="font-semibold">Registro de doca diaria</h2><p className="text-sm text-slate-600">Data: {workDate}</p></div>
               <button type="button" className="rounded-lg border px-3 py-1" onClick={() => setDockModalOpen(false)}>Fechar</button>
             </div>
-            {(user.role === "admin" || user.role === "supervisor") && (
-              <form onSubmit={saveDockAssignment} className="mb-4 grid grid-cols-1 gap-3 rounded-xl bg-slate-50 p-3 md:grid-cols-12">
-                <input required className="rounded-xl border px-3 py-2 md:col-span-2" placeholder="Rota da base" value={dockRouteCode} onChange={(e) => setDockRouteCode(e.target.value)} />
-                <input required className="rounded-xl border px-3 py-2 md:col-span-5" placeholder="Nome (ex.: LM - Limeira)" value={dockRouteName} onChange={(e) => setDockRouteName(e.target.value)} />
-                <select className="rounded-xl border bg-white px-3 py-2 md:col-span-2" value={dockPosition} onChange={(e) => setDockPosition(e.target.value as "frente" | "tras")}><option value="frente">Frente</option><option value="tras">Tras</option></select>
-                <button disabled={dockLoading} className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white md:col-span-3 disabled:opacity-50">{dockLoading ? "Salvando..." : "Adicionar / atualizar"}</button>
-              </form>
-            )}
+            <p className="mb-4 rounded-xl bg-cyan-50 p-3 text-sm text-cyan-900">As rotas abaixo foram carregadas automaticamente da base do próximo dia útil. Marque somente onde cada rota deve ser descarregada.</p>
             {dockError && <p className="mb-3 text-sm text-red-700">{dockError}</p>}
             <div className="overflow-auto">
-              <table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="py-2">Rota da base</th><th>Nome</th><th>Doca</th><th>Cadastrado por</th><th></th></tr></thead><tbody>
-                {dockAssignments.map((item) => <tr className="border-b" key={item.id}><td className="py-2 font-semibold">{item.route_code}</td><td>{item.route_name}</td><td className="font-bold uppercase">{item.dock_position === "frente" ? "Frente" : "Tras"}</td><td>{item.created_by_name}</td><td>{(user.role === "admin" || user.role === "supervisor") && <button type="button" className="text-red-700 underline" onClick={() => deleteDockAssignment(item.id)}>Excluir</button>}</td></tr>)}
+              <table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="py-2">Rota</th><th>Pedidos</th><th>Posicao da doca</th><th>Definido por</th><th></th></tr></thead><tbody>
+                {dockAssignments.map((item) => <tr className="border-b" key={item.route_code}><td className="py-3 font-semibold">{item.route_code}</td><td>{item.orders_count}</td><td><div className="flex gap-2"><button type="button" disabled={dockLoading || !(user.role === "admin" || user.role === "supervisor")} onClick={() => saveDockAssignment(item, "frente")} className={`rounded-lg border px-3 py-2 font-bold disabled:cursor-not-allowed ${item.dock_position === "frente" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 bg-white"}`}>Frente</button><button type="button" disabled={dockLoading || !(user.role === "admin" || user.role === "supervisor")} onClick={() => saveDockAssignment(item, "tras")} className={`rounded-lg border px-3 py-2 font-bold disabled:cursor-not-allowed ${item.dock_position === "tras" ? "border-orange-600 bg-orange-600 text-white" : "border-slate-300 bg-white"}`}>Tras</button></div></td><td>{item.created_by_name || "-"}</td><td>{(user.role === "admin" || user.role === "supervisor") && item.id && <button type="button" className="text-red-700 underline" onClick={() => deleteDockAssignment(item.id)}>Limpar</button>}</td></tr>)}
                 {!dockAssignments.length && <tr><td colSpan={5} className="py-4 text-slate-500">Nenhuma rota cadastrada para esta data.</td></tr>}
               </tbody></table>
             </div>
