@@ -340,6 +340,28 @@ importsRouter.post(
       return res.status(400).json({ message: "Nenhuma linha valida da aba Base foi encontrada no arquivo." });
     }
 
+    const previousBase = await pool.query(
+      `SELECT processed_rows, imported_at, filename FROM imports
+       WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
+       ORDER BY imported_at DESC LIMIT 1`
+    );
+    const previousCount = Number(previousBase.rows[0]?.processed_rows || 0);
+    const changePercentage = previousCount ? Math.round(((rows.length - previousCount) / previousCount) * 100) : 0;
+    const requiresConfirmation = previousCount > 0 && Math.abs(changePercentage) >= 35;
+    if (requiresConfirmation && req.body.confirmLargeChange !== "true") {
+      return res.status(409).json({
+        message: `A nova base tem ${rows.length} pedidos (${changePercentage > 0 ? "+" : ""}${changePercentage}% comparado aos ${previousCount} anteriores). Confirme para continuar.`,
+        requiresConfirmation: true,
+        comparison: {
+          currentRows: rows.length,
+          previousRows: previousCount,
+          changePercentage,
+          previousFilename: previousBase.rows[0]?.filename,
+          previousImportedAt: previousBase.rows[0]?.imported_at
+        }
+      });
+    }
+
     const importInsert = await pool.query(
       `
         INSERT INTO imports (
@@ -400,6 +422,11 @@ importsRouter.post(
 
       return res.status(201).json({
         importId,
+        validation: {
+          previousRows: previousCount,
+          changePercentage,
+          deliveryDates: [...new Set(rows.map((row) => row.base_date))].sort()
+        },
         summary: {
           processedRows: rows.length,
           insertedRows: summary.inserted,

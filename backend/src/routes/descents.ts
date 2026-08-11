@@ -44,6 +44,10 @@ function normalizeOrderNumber(value: string): string {
   return digits || value.trim();
 }
 
+function saoPauloToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+}
+
 function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
   const values: unknown[] = [query.date];
   const deliveryDateSql = `(
@@ -107,22 +111,64 @@ descentsRouter.post(
       }
     }
 
-    const workDate = parsed.data.workDate || new Date().toISOString().slice(0, 10);
+    const workDate = parsed.data.workDate || saoPauloToday();
+    if (workDate !== saoPauloToday() && req.user.role !== "admin" && req.user.role !== "supervisor") {
+      return res.status(422).json({ message: "Operadores so podem registrar pedidos na data de hoje." });
+    }
     const normalizedOrder = normalizeOrderNumber(parsed.data.orderNumber);
+    const catalog = await pool.query(
+      `
+        SELECT c.lot, c.volume, c.weight_kg, c.route, c.description, c.base_date,
+               i.imported_at AS base_imported_at
+        FROM order_catalog c
+        JOIN imports i ON i.id = c.source_import_id
+        WHERE c.order_number = $1
+          AND c.base_date = (
+            $2::date + CASE EXTRACT(ISODOW FROM $2::date)::int
+              WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1
+            END
+          )
+          AND c.source_import_id = (
+            SELECT id FROM imports
+            WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
+            ORDER BY imported_at DESC LIMIT 1
+          )
+          AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
+          AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
+        LIMIT 1
+      `,
+      [normalizedOrder, workDate]
+    );
+    const orderInfo = catalog.rows[0];
+    if (!orderInfo) {
+      return res.status(422).json({ message: "Pedido nao pertence a base valida deste turno." });
+    }
+
+    if (orderInfo.route) {
+      const dock = await pool.query(
+        `SELECT dock_position FROM daily_dock_assignments WHERE work_date = $1::date AND route_code = UPPER(TRIM($2)) LIMIT 1`,
+        [workDate, orderInfo.route]
+      );
+      if (!dock.rowCount) {
+        return res.status(422).json({ message: `Rota ${orderInfo.route} ainda esta sem doca definida pelo supervisor.` });
+      }
+    }
+
+    const duplicate = await pool.query(
+      `SELECT descended_by_name, created_at FROM descents WHERE order_number = $1 AND work_date = $2::date ORDER BY created_at ASC LIMIT 1`,
+      [normalizedOrder, workDate]
+    );
+    if (duplicate.rowCount) {
+      return res.status(409).json({
+        message: `Pedido ja bipado por ${duplicate.rows[0].descended_by_name}.`,
+        duplicate: duplicate.rows[0]
+      });
+    }
+
     const imagePath = await persistUploadedImage(req.file, "descents");
     const userInfo = await pool.query(`SELECT name, pen_color FROM users WHERE id = $1 LIMIT 1`, [req.user.id]);
     const userName = userInfo.rows[0]?.name || req.user.name;
     const userPenColor = userInfo.rows[0]?.pen_color || req.user.pen_color || "Blue";
-    const catalog = await pool.query(
-      `
-        SELECT lot, volume, weight_kg, route, description
-        FROM order_catalog
-        WHERE order_number = $1
-        LIMIT 1
-      `,
-      [normalizedOrder]
-    );
-    const orderInfo = catalog.rows[0];
 
     const result = await pool.query(
       `
@@ -386,7 +432,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
   }
 
   const { values, where, deliveryDateSql } = buildClosingReportFilters(parsed.data);
-  const [summary, pending, unexpected] = await Promise.all([
+  const [summary, pending, unexpected, unexpectedItems, duplicates, baseInfo, routeProgress] = await Promise.all([
     pool.query(
       `
         SELECT
@@ -441,6 +487,49 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
           )
       `,
       [parsed.data.date]
+    ),
+    pool.query(
+      `SELECT d.order_number, MIN(d.created_at) AS scanned_at,
+              MIN(d.descended_by_name) AS descended_by_name, COUNT(*)::int AS scans
+       FROM descents d
+       WHERE d.work_date = $1::date
+         AND NOT EXISTS (
+           SELECT 1 FROM order_catalog c
+           WHERE c.order_number = d.order_number AND c.base_date = ${deliveryDateSql}
+             AND c.source_import_id = (SELECT id FROM imports WHERE status = 'success' AND rejection_report->>'type' = 'BASE' ORDER BY imported_at DESC LIMIT 1)
+         )
+       GROUP BY d.order_number ORDER BY scanned_at`,
+      [parsed.data.date]
+    ),
+    pool.query(
+      `SELECT order_number, COUNT(*)::int AS scans, MIN(created_at) AS first_scan_at,
+              MAX(created_at) AS last_scan_at, STRING_AGG(DISTINCT descended_by_name, ', ') AS operators
+       FROM descents WHERE work_date = $1::date
+       GROUP BY order_number HAVING COUNT(*) > 1 ORDER BY last_scan_at DESC`,
+      [parsed.data.date]
+    ),
+    pool.query(
+      `SELECT i.imported_at, i.filename,
+              COUNT(DISTINCT c.route) FILTER (
+                WHERE c.route IS NOT NULL AND TRIM(c.route) <> '' AND d.id IS NULL
+              )::int AS routes_without_dock
+       FROM imports i
+       LEFT JOIN order_catalog c ON c.source_import_id = i.id AND c.base_date = ${deliveryDateSql}
+         AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
+         AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
+       LEFT JOIN daily_dock_assignments d ON d.work_date = $1::date AND d.route_code = UPPER(TRIM(c.route))
+       WHERE i.id = (SELECT id FROM imports WHERE status = 'success' AND rejection_report->>'type' = 'BASE' ORDER BY imported_at DESC LIMIT 1)
+       GROUP BY i.id, i.imported_at, i.filename`,
+      [parsed.data.date]
+    ),
+    pool.query(
+      `SELECT COALESCE(NULLIF(TRIM(c.route), ''), 'SEM ROTA') AS route,
+              COUNT(*)::int AS expected_orders,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM descents d WHERE d.order_number = c.order_number AND d.work_date = $1::date))::int AS scanned_orders,
+              MAX((SELECT MAX(d.created_at) FROM descents d WHERE d.order_number = c.order_number AND d.work_date = $1::date)) AS last_scan_at
+       FROM order_catalog c WHERE ${where}
+       GROUP BY COALESCE(NULLIF(TRIM(c.route), ''), 'SEM ROTA') ORDER BY route`,
+      values
     )
   ]);
 
@@ -457,6 +546,17 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
     },
     operation_date: parsed.data.date,
     delivery_date: pending.rows[0]?.delivery_date || null,
+    base: baseInfo.rows[0] || null,
+    exceptions: {
+      unexpected: unexpectedItems.rows,
+      duplicates: duplicates.rows,
+      routes_without_dock: Number(baseInfo.rows[0]?.routes_without_dock || 0)
+    },
+    route_progress: routeProgress.rows.map((row) => ({
+      ...row,
+      pending_orders: Number(row.expected_orders) - Number(row.scanned_orders),
+      completion_percentage: Number(row.expected_orders) ? Number(((Number(row.scanned_orders) / Number(row.expected_orders)) * 100).toFixed(1)) : 0
+    })),
     items: pending.rows
   });
 });
@@ -527,14 +627,31 @@ descentsRouter.get("/lookup/:orderNumber", authRequired, requireScreenAccess("er
 });
 
 descentsRouter.get("/catalog/:orderNumber", authRequired, requireScreenAccess("descents"), async (req, res) => {
+  const workDate = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+    ? req.query.date
+    : saoPauloToday();
   const result = await pool.query(
     `
-      SELECT order_number, lot, volume, weight_kg, route, description, base_date
-      FROM order_catalog
-      WHERE order_number = $1
+      SELECT c.order_number, c.lot, c.volume, c.weight_kg, c.route, c.description, c.base_date,
+             i.imported_at AS base_imported_at
+      FROM order_catalog c
+      JOIN imports i ON i.id = c.source_import_id
+      WHERE c.order_number = $1
+        AND c.base_date = (
+          $2::date + CASE EXTRACT(ISODOW FROM $2::date)::int
+            WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1
+          END
+        )
+        AND c.source_import_id = (
+          SELECT id FROM imports
+          WHERE status = 'success' AND rejection_report->>'type' = 'BASE'
+          ORDER BY imported_at DESC LIMIT 1
+        )
+        AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
+        AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
       LIMIT 1
     `,
-    [normalizeOrderNumber(String(req.params.orderNumber))]
+    [normalizeOrderNumber(String(req.params.orderNumber)), workDate]
   );
   if (!result.rowCount) {
     return res.status(404).json({ message: "Pedido nao encontrado na base." });

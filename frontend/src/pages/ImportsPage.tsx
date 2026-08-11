@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import axios from "axios";
 import { api } from "../lib/api";
 import type { ImportRecord, User } from "../types";
+
+function importErrorMessage(error: unknown, fallback: string) {
+  return axios.isAxiosError<{ message?: string }>(error) ? error.response?.data?.message || fallback : fallback;
+}
 
 export function ImportsPage({ user }: { user: User }) {
   const [file, setFile] = useState<File | null>(null);
@@ -104,10 +109,10 @@ export function ImportsPage({ user }: { user: User }) {
       );
       showNotice("success", "Importacao KPI concluida com sucesso.");
       await loadImports();
-    } catch (err: any) {
+    } catch (err: unknown) {
       stopTicker("kpi");
       setKpiProgress(0);
-      const msg = err?.response?.data?.message || "Falha ao importar arquivo.";
+      const msg = importErrorMessage(err, "Falha ao importar arquivo.");
       setError(msg);
       showNotice("error", `Falha na importacao KPI: ${msg}`);
     } finally {
@@ -132,28 +137,41 @@ export function ImportsPage({ user }: { user: User }) {
     setBaseStartedAt(Date.now());
     startTicker("base");
     try {
-      const form = new FormData();
-      form.append("file", baseFile);
+      const upload = async (confirmed: boolean) => {
+        const form = new FormData();
+        form.append("file", baseFile);
+        if (confirmed) form.append("confirmLargeChange", "true");
+        return api.post("/imports/base", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (evt) => {
+            if (!evt.total) return;
+            const pct = Math.round((evt.loaded * 100) / evt.total);
+            setBaseProgress(Math.max(5, Math.min(95, pct)));
+          }
+        });
+      };
 
-      const { data } = await api.post("/imports/base", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-        onUploadProgress: (evt) => {
-          if (!evt.total) return;
-          const pct = Math.round((evt.loaded * 100) / evt.total);
-          setBaseProgress(Math.max(5, Math.min(95, pct)));
-        }
-      });
+      let response;
+      try {
+        response = await upload(false);
+      } catch (err: unknown) {
+        const requiresConfirmation = axios.isAxiosError<{ requiresConfirmation?: boolean; message?: string }>(err)
+          && err.response?.status === 409 && err.response.data?.requiresConfirmation;
+        if (!requiresConfirmation || !window.confirm(`${err.response?.data?.message}\n\nDeseja realmente substituir a base ativa?`)) throw err;
+        response = await upload(true);
+      }
+      const { data } = response;
       stopTicker("base");
       setBaseProgress(100);
       setBaseMessage(
-        `Base importada: ${data.summary.insertedRows} novas, ${data.summary.updatedRows} atualizadas, ${data.summary.consolidatedDescents || 0} descidas consolidadas.`
+        `Base importada e validada: ${data.summary.processedRows} pedidos, ${data.summary.insertedRows} novos, ${data.summary.updatedRows} atualizados. Variacao: ${data.validation?.changePercentage ?? 0}%.`
       );
       showNotice("success", "Importacao da Base concluida com sucesso.");
       await loadImports();
-    } catch (err: any) {
+    } catch (err: unknown) {
       stopTicker("base");
       setBaseProgress(0);
-      const msg = err?.response?.data?.message || "Falha ao importar base.";
+      const msg = importErrorMessage(err, "Falha ao importar base.");
       setBaseError(msg);
       showNotice("error", `Falha na importacao da Base: ${msg}`);
     } finally {

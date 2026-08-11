@@ -274,6 +274,10 @@ export async function submitQueuedOperation<T extends OperationType>(type: T, pa
     return { status: "sent" as const, id: item.id };
   } catch (error) {
     const info = extractQueueError(error);
+    if (info.status && info.status >= 400 && info.status < 500 && info.status !== 408 && info.status !== 429) {
+      await deleteOperation(item.id);
+      throw error;
+    }
     item.status = "pending";
     item.attempts += 1;
     item.lastError = info.message;

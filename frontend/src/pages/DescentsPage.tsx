@@ -21,6 +21,7 @@ export function DescentsPage({ user }: { user: User }) {
   const [image, setImage] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [resultKind, setResultKind] = useState<"success" | "warning" | "error" | null>(null);
   const [loading, setLoading] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [orderInfo, setOrderInfo] = useState<OrderCatalogRecord | null>(null);
@@ -30,6 +31,21 @@ export function DescentsPage({ user }: { user: User }) {
   const [dockLoading, setDockLoading] = useState(false);
   const [dockError, setDockError] = useState("");
   const lookupSeqRef = useRef(0);
+
+  function playFeedback(kind: "success" | "error") {
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = kind === "success" ? 880 : 220;
+    gain.gain.setValueAtTime(0.12, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + (kind === "success" ? 0.18 : 0.45));
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + (kind === "success" ? 0.18 : 0.45));
+  }
 
   function normalizeOrder(value: string) {
     const digits = value.replace(/\D/g, "");
@@ -96,7 +112,7 @@ export function DescentsPage({ user }: { user: User }) {
 
     const seq = ++lookupSeqRef.current;
     try {
-      const { data } = await api.get(`/descents/catalog/${encodeURIComponent(normalized)}`);
+      const { data } = await api.get(`/descents/catalog/${encodeURIComponent(normalized)}?date=${encodeURIComponent(workDate)}`);
       if (seq !== lookupSeqRef.current) return;
       setOrderInfo(data);
     } catch {
@@ -119,12 +135,13 @@ export function DescentsPage({ user }: { user: User }) {
       lookupOrder(orderNumber);
     }, 250);
     return () => clearTimeout(t);
-  }, [orderNumber]);
+  }, [orderNumber, workDate]);
 
   async function submitDescent(e: FormEvent) {
     e.preventDefault();
     setError("");
     setMessage("");
+    setResultKind(null);
     if (!orderNumber.trim()) {
       setError("Informe o pedido para registrar a descida.");
       return;
@@ -137,6 +154,18 @@ export function DescentsPage({ user }: { user: User }) {
       setError("Foto do produto e obrigatoria.");
       return;
     }
+    if (!orderInfo) {
+      setResultKind("error");
+      setError("Pedido bloqueado: ele nao pertence a base valida deste turno.");
+      playFeedback("error");
+      return;
+    }
+    if (orderInfo.route && !currentDock) {
+      setResultKind("error");
+      setError(`Pedido bloqueado: a rota ${orderInfo.route} ainda esta sem doca definida.`);
+      playFeedback("error");
+      return;
+    }
     setLoading(true);
     try {
       const result = await submitQueuedOperation("descent", {
@@ -145,9 +174,12 @@ export function DescentsPage({ user }: { user: User }) {
         image: buildQueueFile(image)
       });
       if (result.status === "sent") {
-        setMessage("Pedido descido registrado com sucesso.");
+        setResultKind("success");
+        setMessage(`CONFIRMADO: pedido ${normalizeOrder(orderNumber)} - rota ${orderInfo.route || "sem rota"} - doca ${currentDock?.dock_position === "tras" ? "TRAS" : "FRENTE"}.`);
+        playFeedback("success");
         await loadRecent();
       } else {
+        setResultKind("warning");
         setMessage("Registro salvo localmente e pendente de sincronizacao. Ele sera enviado automaticamente quando a conexao estabilizar.");
       }
       setOrderNumber("");
@@ -155,7 +187,9 @@ export function DescentsPage({ user }: { user: User }) {
       setImage(null);
       void flushOperationalQueue();
     } catch (err: unknown) {
+      setResultKind("error");
       setError(apiErrorMessage(err, "Falha ao registrar descida."));
+      playFeedback("error");
     } finally {
       setLoading(false);
     }
@@ -222,6 +256,9 @@ export function DescentsPage({ user }: { user: User }) {
               <p className="text-3xl font-black uppercase">Doca: {currentDock.dock_position === "frente" ? "Frente" : "Tras"}</p>
             </div>
           )}
+          {orderInfo?.base_imported_at && (
+            <p className="text-xs font-medium text-slate-600">Base ativa importada em {new Date(orderInfo.base_imported_at).toLocaleString("pt-BR")} — entrega {orderInfo.base_date?.slice(0, 10)}.</p>
+          )}
           {orderInfo?.route && !currentDock && (
             <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Rota {orderInfo.route} sem doca cadastrada para {workDate}.</p>
           )}
@@ -229,12 +266,12 @@ export function DescentsPage({ user }: { user: User }) {
           <button
             type="submit"
             className="rounded-xl bg-teal-700 text-white px-5 py-2 font-semibold disabled:opacity-50"
-            disabled={loading || !image || !workDate || !orderNumber.trim()}
+            disabled={loading || !image || !workDate || !orderNumber.trim() || !orderInfo || Boolean(orderInfo.route && !currentDock)}
           >
             {loading ? "Salvando..." : "Registrar descida"}
           </button>
-          {message && <p className="text-sm text-emerald-700">{message}</p>}
-          {error && <p className="text-sm text-red-700">{error}</p>}
+          {message && <p className={`rounded-xl border-2 p-4 text-center text-lg font-black ${resultKind === "success" ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-amber-500 bg-amber-50 text-amber-900"}`}>{message}</p>}
+          {error && <p className="rounded-xl border-2 border-red-500 bg-red-50 p-4 text-center text-lg font-black text-red-800">{error}</p>}
           {!orderInfo && orderNumber && (
             <p className="text-sm text-amber-700">Pedido sem base cadastrada para lote/peso/volume/rota/descricao.</p>
           )}

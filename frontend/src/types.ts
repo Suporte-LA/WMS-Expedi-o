@@ -54,6 +54,7 @@ export type OrderCatalogRecord = {
   route?: string | null;
   description?: string | null;
   base_date?: string | null;
+  base_imported_at?: string | null;
 };
 
 export type DailyDockAssignment = {

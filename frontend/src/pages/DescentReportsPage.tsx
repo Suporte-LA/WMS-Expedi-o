@@ -22,6 +22,21 @@ type ClosingReportCards = {
   completion_percentage: number;
 };
 
+type ClosingExceptions = {
+  unexpected: Array<{ order_number: string; scanned_at: string; descended_by_name: string; scans: number }>;
+  duplicates: Array<{ order_number: string; scans: number; first_scan_at: string; last_scan_at: string; operators: string }>;
+  routes_without_dock: number;
+};
+
+type RouteProgress = {
+  route: string;
+  expected_orders: number;
+  scanned_orders: number;
+  pending_orders: number;
+  completion_percentage: number;
+  last_scan_at?: string | null;
+};
+
 function apiErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError<{ message?: string }>(error)) {
     return error.response?.data?.message || fallback;
@@ -58,6 +73,9 @@ export function DescentReportsPage() {
   const [closingItems, setClosingItems] = useState<ClosingReportItem[]>([]);
   const [closingCards, setClosingCards] = useState<ClosingReportCards | null>(null);
   const [closingUpdatedAt, setClosingUpdatedAt] = useState("");
+  const [closingExceptions, setClosingExceptions] = useState<ClosingExceptions>({ unexpected: [], duplicates: [], routes_without_dock: 0 });
+  const [closingBase, setClosingBase] = useState<{ imported_at: string; filename: string } | null>(null);
+  const [routeProgress, setRouteProgress] = useState<RouteProgress[]>([]);
 
   async function load() {
     setLoading(true);
@@ -101,6 +119,9 @@ export function DescentReportsPage() {
       const { data } = await api.get(`/descents/closing-report?${closingParams().toString()}`);
       setClosingCards(data.cards || null);
       setClosingItems(data.items || []);
+      setClosingExceptions(data.exceptions || { unexpected: [], duplicates: [], routes_without_dock: 0 });
+      setClosingBase(data.base || null);
+      setRouteProgress(data.route_progress || []);
       setClosingUpdatedAt(new Date().toLocaleTimeString("pt-BR"));
     } catch (err: unknown) {
       setClosingError(apiErrorMessage(err, "Falha ao carregar o fechamento do turno."));
@@ -164,6 +185,30 @@ export function DescentReportsPage() {
               <div className="rounded-xl bg-cyan-50 p-3"><p className="text-xs text-cyan-700">Conclusao</p><p className="text-2xl font-bold text-cyan-800">{closingCards.completion_percentage}%</p></div>
             </div>
             <p className="text-xs text-slate-500">Atualizacao automatica a cada 15 segundos{closingUpdatedAt ? ` — ultima atualizacao: ${closingUpdatedAt}` : ""}. Pedidos fora da base nao reduzem as pendencias previstas.</p>
+            {closingBase && (
+              <div className={`rounded-xl border p-3 text-sm ${closingExceptions.routes_without_dock ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+                <strong>Base ativa:</strong> {closingBase.filename}, importada em {new Date(closingBase.imported_at).toLocaleString("pt-BR")}.
+                {closingExceptions.routes_without_dock ? ` Existem ${closingExceptions.routes_without_dock} rotas sem doca definida.` : " Todas as rotas estao com doca definida."}
+              </div>
+            )}
+            {(closingExceptions.unexpected.length > 0 || closingExceptions.duplicates.length > 0) && (
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+                  <h3 className="font-semibold text-amber-900">Bipados fora da base ({closingExceptions.unexpected.length})</h3>
+                  <div className="mt-2 max-h-48 overflow-auto text-sm">{closingExceptions.unexpected.map((item) => <p key={item.order_number} className="border-b border-amber-200 py-1"><strong>{item.order_number}</strong> — {item.descended_by_name} — {new Date(item.scanned_at).toLocaleTimeString("pt-BR")}</p>)}</div>
+                </div>
+                <div className="rounded-xl border border-red-300 bg-red-50 p-3">
+                  <h3 className="font-semibold text-red-900">Duplicidades ({closingExceptions.duplicates.length})</h3>
+                  <div className="mt-2 max-h-48 overflow-auto text-sm">{closingExceptions.duplicates.map((item) => <p key={item.order_number} className="border-b border-red-200 py-1"><strong>{item.order_number}</strong> — {item.scans} leituras — {item.operators}</p>)}</div>
+                </div>
+              </div>
+            )}
+            <div className="overflow-auto rounded-xl border">
+              <div className="border-b bg-slate-50 px-3 py-2"><h3 className="font-semibold">Andamento por rota</h3><p className="text-xs text-slate-500">Rotas paradas ou ainda nao iniciadas aparecem primeiro pelas pendencias.</p></div>
+              <table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="p-2">Rota</th><th>Previstos</th><th>Bipados</th><th>Restantes</th><th>Conclusao</th><th>Ultimo bipe</th></tr></thead><tbody>
+                {[...routeProgress].sort((a, b) => b.pending_orders - a.pending_orders).map((item) => <tr key={item.route} className={`border-b ${item.scanned_orders === 0 ? "bg-amber-50" : ""}`}><td className="p-2 font-semibold">{item.route}</td><td>{item.expected_orders}</td><td>{item.scanned_orders}</td><td className={item.pending_orders ? "font-bold text-red-700" : "text-emerald-700"}>{item.pending_orders}</td><td>{item.completion_percentage}%</td><td>{item.last_scan_at ? new Date(item.last_scan_at).toLocaleTimeString("pt-BR") : "Nao iniciada"}</td></tr>)}
+              </tbody></table>
+            </div>
             <div className="overflow-auto">
               <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">Pedidos nao bipados</h3><span className="text-sm text-slate-600">{closingItems.length} pedidos</span></div>
               <table className="w-full text-sm">
