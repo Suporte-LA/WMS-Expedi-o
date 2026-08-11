@@ -4,6 +4,7 @@ import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../midd
 import { pool } from "../db.js";
 import { imageUpload, persistUploadedImage } from "../services/uploads.js";
 import { writeAuditLog } from "../services/audit.js";
+import XLSX from "xlsx";
 
 const createSchema = z.object({
   orderNumber: z.string().min(1),
@@ -22,11 +23,38 @@ const listSchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).default(30)
 });
 
+const closingReportSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  order: z.string().optional(),
+  route: z.string().optional(),
+  lot: z.string().optional()
+});
+
 export const descentsRouter = Router();
 
 function normalizeOrderNumber(value: string): string {
   const digits = value.replace(/\D/g, "");
   return digits || value.trim();
+}
+
+function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
+  const values: unknown[] = [query.date];
+  const filters = ["c.base_date = $1::date"];
+
+  if (query.order) {
+    values.push(`%${query.order}%`);
+    filters.push(`c.order_number ILIKE $${values.length}`);
+  }
+  if (query.route) {
+    values.push(`%${query.route}%`);
+    filters.push(`COALESCE(c.route, '') ILIKE $${values.length}`);
+  }
+  if (query.lot) {
+    values.push(`%${query.lot}%`);
+    filters.push(`COALESCE(c.lot, '') ILIKE $${values.length}`);
+  }
+
+  return { values, where: filters.join(" AND ") };
 }
 
 descentsRouter.post(
@@ -218,6 +246,105 @@ descentsRouter.get("/dashboard", authRequired, requireScreenAccess("descents"), 
     byUser: byUser.rows,
     byDay: byDay.rows
   });
+});
+
+descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descents"), async (req, res) => {
+  const parsed = closingReportSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Informe uma data valida para o fechamento." });
+  }
+
+  const { values, where } = buildClosingReportFilters(parsed.data);
+  const [summary, pending] = await Promise.all([
+    pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS expected_orders,
+          COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM descents d
+            WHERE d.order_number = c.order_number
+              AND d.work_date = c.base_date
+          ))::int AS scanned_orders,
+          COUNT(*) FILTER (WHERE NOT EXISTS (
+            SELECT 1 FROM descents d
+            WHERE d.order_number = c.order_number
+              AND d.work_date = c.base_date
+          ))::int AS pending_orders
+        FROM order_catalog c
+        WHERE ${where}
+      `,
+      values
+    ),
+    pool.query(
+      `
+        SELECT c.order_number, c.route, c.lot, c.volume, c.weight_kg, c.description, c.base_date
+        FROM order_catalog c
+        WHERE ${where}
+          AND NOT EXISTS (
+            SELECT 1 FROM descents d
+            WHERE d.order_number = c.order_number
+              AND d.work_date = c.base_date
+          )
+        ORDER BY c.route NULLS LAST, c.order_number
+      `,
+      values
+    )
+  ]);
+
+  const cards = summary.rows[0];
+  const expected = Number(cards?.expected_orders || 0);
+  const scanned = Number(cards?.scanned_orders || 0);
+  return res.json({
+    cards: {
+      expected_orders: expected,
+      scanned_orders: scanned,
+      pending_orders: Number(cards?.pending_orders || 0),
+      completion_percentage: expected ? Number(((scanned / expected) * 100).toFixed(1)) : 0
+    },
+    items: pending.rows
+  });
+});
+
+descentsRouter.get("/closing-report/export", authRequired, requireScreenAccess("descents"), async (req, res) => {
+  const parsed = closingReportSchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Informe uma data valida para o fechamento." });
+  }
+
+  const { values, where } = buildClosingReportFilters(parsed.data);
+  const result = await pool.query(
+    `
+      SELECT c.order_number, c.route, c.lot, c.volume, c.weight_kg, c.description, c.base_date
+      FROM order_catalog c
+      WHERE ${where}
+        AND NOT EXISTS (
+          SELECT 1 FROM descents d
+          WHERE d.order_number = c.order_number
+            AND d.work_date = c.base_date
+        )
+      ORDER BY c.route NULLS LAST, c.order_number
+    `,
+    values
+  );
+
+  const rows = result.rows.map((row) => ({
+    Pedido: row.order_number,
+    Rota: row.route || "",
+    Lote: row.lot || "",
+    Volumes: row.volume ?? "",
+    "Peso (kg)": row.weight_kg ?? "",
+    Descricao: row.description || "",
+    Data: String(row.base_date).slice(0, 10),
+    Situacao: "Nao bipado"
+  }));
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  worksheet["!cols"] = [12, 14, 12, 10, 12, 40, 12, 14].map((wch) => ({ wch }));
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Nao bipados");
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="pedidos-nao-bipados-${parsed.data.date}.xlsx"`);
+  return res.send(buffer);
 });
 
 descentsRouter.get("/lookup/:orderNumber", authRequired, requireScreenAccess("error-check"), async (req, res) => {
