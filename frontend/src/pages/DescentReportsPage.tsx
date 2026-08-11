@@ -18,6 +18,7 @@ type ClosingReportCards = {
   expected_orders: number;
   scanned_orders: number;
   pending_orders: number;
+  unexpected_orders: number;
   completion_percentage: number;
 };
 
@@ -56,6 +57,7 @@ export function DescentReportsPage() {
   const [closingError, setClosingError] = useState("");
   const [closingItems, setClosingItems] = useState<ClosingReportItem[]>([]);
   const [closingCards, setClosingCards] = useState<ClosingReportCards | null>(null);
+  const [closingUpdatedAt, setClosingUpdatedAt] = useState("");
 
   async function load() {
     setLoading(true);
@@ -99,12 +101,21 @@ export function DescentReportsPage() {
       const { data } = await api.get(`/descents/closing-report?${closingParams().toString()}`);
       setClosingCards(data.cards || null);
       setClosingItems(data.items || []);
+      setClosingUpdatedAt(new Date().toLocaleTimeString("pt-BR"));
     } catch (err: unknown) {
       setClosingError(apiErrorMessage(err, "Falha ao carregar o fechamento do turno."));
     } finally {
       setClosingLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!closingCards) return;
+    const interval = window.setInterval(() => {
+      void loadClosingReport();
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [closingCards, closingDate, closingOrder, closingRoute, closingLot]);
 
   async function exportClosingReport() {
     setClosingError("");
@@ -145,12 +156,14 @@ export function DescentReportsPage() {
         {closingError && <p className="text-sm text-red-700">{closingError}</p>}
         {closingCards && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Previstos</p><p className="text-2xl font-bold">{closingCards.expected_orders}</p></div>
               <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">Bipados</p><p className="text-2xl font-bold text-emerald-800">{closingCards.scanned_orders}</p></div>
               <div className="rounded-xl bg-red-50 p-3"><p className="text-xs text-red-700">Nao bipados</p><p className="text-2xl font-bold text-red-800">{closingCards.pending_orders}</p></div>
+              <div className="rounded-xl bg-amber-50 p-3"><p className="text-xs text-amber-700">Bipados fora da base</p><p className="text-2xl font-bold text-amber-800">{closingCards.unexpected_orders}</p></div>
               <div className="rounded-xl bg-cyan-50 p-3"><p className="text-xs text-cyan-700">Conclusao</p><p className="text-2xl font-bold text-cyan-800">{closingCards.completion_percentage}%</p></div>
             </div>
+            <p className="text-xs text-slate-500">Atualizacao automatica a cada 15 segundos{closingUpdatedAt ? ` — ultima atualizacao: ${closingUpdatedAt}` : ""}. Pedidos fora da base nao reduzem as pendencias previstas.</p>
             <div className="overflow-auto">
               <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">Pedidos nao bipados</h3><span className="text-sm text-slate-600">{closingItems.length} pedidos</span></div>
               <table className="w-full text-sm">

@@ -382,7 +382,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
   }
 
   const { values, where, deliveryDateSql } = buildClosingReportFilters(parsed.data);
-  const [summary, pending] = await Promise.all([
+  const [summary, pending, unexpected] = await Promise.all([
     pool.query(
       `
         SELECT
@@ -418,6 +418,25 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
         ORDER BY c.route NULLS LAST, c.order_number
       `,
       values
+    ),
+    pool.query(
+      `
+        SELECT COUNT(DISTINCT d.order_number)::int AS unexpected_orders
+        FROM descents d
+        WHERE d.work_date = $1::date
+          AND NOT EXISTS (
+            SELECT 1
+            FROM order_catalog c
+            WHERE c.order_number = d.order_number
+              AND c.base_date = ${deliveryDateSql}
+              AND c.source_import_id = (
+                SELECT i.id FROM imports i
+                WHERE i.status = 'success' AND i.rejection_report->>'type' = 'BASE'
+                ORDER BY i.imported_at DESC LIMIT 1
+              )
+          )
+      `,
+      [parsed.data.date]
     )
   ]);
 
@@ -429,6 +448,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
       expected_orders: expected,
       scanned_orders: scanned,
       pending_orders: Number(cards?.pending_orders || 0),
+      unexpected_orders: Number(unexpected.rows[0]?.unexpected_orders || 0),
       completion_percentage: expected ? Number(((scanned / expected) * 100).toFixed(1)) : 0
     },
     operation_date: parsed.data.date,
