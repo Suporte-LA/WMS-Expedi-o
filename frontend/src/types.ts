@@ -56,6 +56,17 @@ export type OrderCatalogRecord = {
   base_date?: string | null;
 };
 
+export type DailyDockAssignment = {
+  id: string;
+  work_date: string;
+  route_code: string;
+  route_name: string;
+  dock_position: "frente" | "tras";
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ErrorRecord = {
   id: string;
   order_number: string;

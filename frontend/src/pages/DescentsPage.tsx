@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import axios from "axios";
 import { api, buildApiUrl } from "../lib/api";
 import { buildQueueFile, flushOperationalQueue, submitQueuedOperation } from "../lib/offlineQueue";
-import type { DescentRecord, OrderCatalogRecord, User } from "../types";
+import type { DailyDockAssignment, DescentRecord, OrderCatalogRecord, User } from "../types";
 import { BarcodeScannerModal } from "../components/BarcodeScannerModal";
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  if (axios.isAxiosError<{ message?: string }>(error)) return error.response?.data?.message || fallback;
+  return fallback;
 }
 
 export function DescentsPage({ user }: { user: User }) {
@@ -19,6 +25,13 @@ export function DescentsPage({ user }: { user: User }) {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [orderInfo, setOrderInfo] = useState<OrderCatalogRecord | null>(null);
   const [records, setRecords] = useState<DescentRecord[]>([]);
+  const [dockModalOpen, setDockModalOpen] = useState(false);
+  const [dockAssignments, setDockAssignments] = useState<DailyDockAssignment[]>([]);
+  const [dockRouteCode, setDockRouteCode] = useState("");
+  const [dockRouteName, setDockRouteName] = useState("");
+  const [dockPosition, setDockPosition] = useState<"frente" | "tras">("frente");
+  const [dockLoading, setDockLoading] = useState(false);
+  const [dockError, setDockError] = useState("");
   const lookupSeqRef = useRef(0);
 
   function normalizeOrder(value: string) {
@@ -30,6 +43,52 @@ export function DescentsPage({ user }: { user: User }) {
     const list = await api.get(`/descents?page=1&pageSize=30`);
     setRecords(list.data.items || []);
   }
+
+  async function loadDockAssignments(date = workDate) {
+    try {
+      const { data } = await api.get(`/descents/dock-assignments?date=${encodeURIComponent(date)}`);
+      setDockAssignments(data.items || []);
+      setDockError("");
+    } catch {
+      setDockAssignments([]);
+      setDockError("Falha ao carregar o registro de docas.");
+    }
+  }
+
+  async function saveDockAssignment(e: FormEvent) {
+    e.preventDefault();
+    setDockLoading(true);
+    setDockError("");
+    try {
+      await api.post("/descents/dock-assignments", {
+        workDate,
+        routeCode: dockRouteCode,
+        routeName: dockRouteName,
+        dockPosition
+      });
+      setDockRouteCode("");
+      setDockRouteName("");
+      await loadDockAssignments();
+    } catch (err: unknown) {
+      setDockError(apiErrorMessage(err, "Falha ao salvar o registro de doca."));
+    } finally {
+      setDockLoading(false);
+    }
+  }
+
+  async function deleteDockAssignment(id: string) {
+    setDockError("");
+    try {
+      await api.delete(`/descents/dock-assignments/${id}`);
+      await loadDockAssignments();
+    } catch (err: unknown) {
+      setDockError(apiErrorMessage(err, "Falha ao remover o registro de doca."));
+    }
+  }
+
+  const currentDock = orderInfo?.route
+    ? dockAssignments.find((item) => item.route_code.trim().toLowerCase() === orderInfo.route?.trim().toLowerCase())
+    : undefined;
 
   async function lookupOrder(order: string) {
     const normalized = normalizeOrder(order);
@@ -51,7 +110,12 @@ export function DescentsPage({ user }: { user: User }) {
 
   useEffect(() => {
     loadRecent();
+    loadDockAssignments();
   }, []);
+
+  useEffect(() => {
+    loadDockAssignments(workDate);
+  }, [workDate]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -93,8 +157,8 @@ export function DescentsPage({ user }: { user: User }) {
       setOrderInfo(null);
       setImage(null);
       void flushOperationalQueue();
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Falha ao registrar descida.");
+    } catch (err: unknown) {
+      setError(apiErrorMessage(err, "Falha ao registrar descida."));
     } finally {
       setLoading(false);
     }
@@ -104,7 +168,12 @@ export function DescentsPage({ user }: { user: User }) {
     <>
       <section className="space-y-4">
         <form onSubmit={submitDescent} className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-          <h2 className="font-semibold">Descer Pedidos</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="font-semibold">Descer Pedidos</h2>
+            <button type="button" onClick={() => setDockModalOpen(true)} className="rounded-xl border border-cyan-600 px-4 py-2 text-sm font-semibold text-cyan-700">
+              Registro de doca diaria
+            </button>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
             <input className="border rounded-xl px-3 py-2 bg-slate-100 md:col-span-2" value={user.name} readOnly />
             <input className="border rounded-xl px-3 py-2 bg-slate-100 md:col-span-2" value={user.pen_color || "Blue"} readOnly />
@@ -149,6 +218,16 @@ export function DescentsPage({ user }: { user: User }) {
           </div>
 
           <input className="border rounded-xl px-3 py-2 bg-slate-50 w-full" placeholder="Descricao" value={orderInfo?.description || ""} readOnly />
+
+          {orderInfo && currentDock && (
+            <div className={`rounded-2xl border-2 p-4 text-center ${currentDock.dock_position === "frente" ? "border-blue-500 bg-blue-50 text-blue-900" : "border-orange-500 bg-orange-50 text-orange-900"}`}>
+              <p className="text-sm font-semibold">{currentDock.route_code} - {currentDock.route_name}</p>
+              <p className="text-3xl font-black uppercase">Doca: {currentDock.dock_position === "frente" ? "Frente" : "Tras"}</p>
+            </div>
+          )}
+          {orderInfo?.route && !currentDock && (
+            <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Rota {orderInfo.route} sem doca cadastrada para {workDate}.</p>
+          )}
 
           <button
             type="submit"
@@ -219,6 +298,32 @@ export function DescentsPage({ user }: { user: User }) {
           lookupOrder(normalized);
         }}
       />
+      {dockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDockModalOpen(false)} />
+          <div className="relative max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div><h2 className="font-semibold">Registro de doca diaria</h2><p className="text-sm text-slate-600">Data: {workDate}</p></div>
+              <button type="button" className="rounded-lg border px-3 py-1" onClick={() => setDockModalOpen(false)}>Fechar</button>
+            </div>
+            {(user.role === "admin" || user.role === "supervisor") && (
+              <form onSubmit={saveDockAssignment} className="mb-4 grid grid-cols-1 gap-3 rounded-xl bg-slate-50 p-3 md:grid-cols-12">
+                <input required className="rounded-xl border px-3 py-2 md:col-span-2" placeholder="Rota da base" value={dockRouteCode} onChange={(e) => setDockRouteCode(e.target.value)} />
+                <input required className="rounded-xl border px-3 py-2 md:col-span-5" placeholder="Nome (ex.: LM - Limeira)" value={dockRouteName} onChange={(e) => setDockRouteName(e.target.value)} />
+                <select className="rounded-xl border bg-white px-3 py-2 md:col-span-2" value={dockPosition} onChange={(e) => setDockPosition(e.target.value as "frente" | "tras")}><option value="frente">Frente</option><option value="tras">Tras</option></select>
+                <button disabled={dockLoading} className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white md:col-span-3 disabled:opacity-50">{dockLoading ? "Salvando..." : "Adicionar / atualizar"}</button>
+              </form>
+            )}
+            {dockError && <p className="mb-3 text-sm text-red-700">{dockError}</p>}
+            <div className="overflow-auto">
+              <table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="py-2">Rota da base</th><th>Nome</th><th>Doca</th><th>Cadastrado por</th><th></th></tr></thead><tbody>
+                {dockAssignments.map((item) => <tr className="border-b" key={item.id}><td className="py-2 font-semibold">{item.route_code}</td><td>{item.route_name}</td><td className="font-bold uppercase">{item.dock_position === "frente" ? "Frente" : "Tras"}</td><td>{item.created_by_name}</td><td>{(user.role === "admin" || user.role === "supervisor") && <button type="button" className="text-red-700 underline" onClick={() => deleteDockAssignment(item.id)}>Excluir</button>}</td></tr>)}
+                {!dockAssignments.length && <tr><td colSpan={5} className="py-4 text-slate-500">Nenhuma rota cadastrada para esta data.</td></tr>}
+              </tbody></table>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

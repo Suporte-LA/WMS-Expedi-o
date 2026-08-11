@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
+import { authRequired, AuthenticatedRequest, requireRole, requireScreenAccess } from "../middleware/auth.js";
 import { pool } from "../db.js";
 import { imageUpload, persistUploadedImage } from "../services/uploads.js";
 import { writeAuditLog } from "../services/audit.js";
@@ -28,6 +28,13 @@ const closingReportSchema = z.object({
   order: z.string().optional(),
   route: z.string().optional(),
   lot: z.string().optional()
+});
+
+const dockAssignmentSchema = z.object({
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  routeCode: z.string().trim().min(1).max(80),
+  routeName: z.string().trim().min(1).max(160),
+  dockPosition: z.enum(["frente", "tras"])
 });
 
 export const descentsRouter = Router();
@@ -264,6 +271,73 @@ descentsRouter.get("/dashboard", authRequired, requireScreenAccess("descents"), 
     byDay: byDay.rows
   });
 });
+
+descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("descents"), async (req, res) => {
+  const parsed = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Informe uma data valida." });
+  }
+  const result = await pool.query(
+    `
+      SELECT id, work_date, route_code, route_name, dock_position, created_by_name, created_at, updated_at
+      FROM daily_dock_assignments
+      WHERE work_date = $1::date
+      ORDER BY route_code, route_name
+    `,
+    [parsed.data.date]
+  );
+  return res.json({ items: result.rows });
+});
+
+descentsRouter.post(
+  "/dock-assignments",
+  authRequired,
+  requireScreenAccess("descents"),
+  requireRole(["admin", "supervisor"]),
+  async (req: AuthenticatedRequest, res) => {
+    const parsed = dockAssignmentSchema.safeParse(req.body);
+    if (!parsed.success || !req.user) {
+      return res.status(400).json({ message: "Preencha data, rota, nome e posicao da doca." });
+    }
+    const routeCode = parsed.data.routeCode.toUpperCase();
+    const result = await pool.query(
+      `
+        INSERT INTO daily_dock_assignments (
+          work_date, route_code, route_name, dock_position, created_by_user_id, created_by_name
+        )
+        VALUES ($1::date, $2, $3, $4, $5, $6)
+        ON CONFLICT (work_date, route_code)
+        DO UPDATE SET
+          route_name = EXCLUDED.route_name,
+          dock_position = EXCLUDED.dock_position,
+          created_by_user_id = EXCLUDED.created_by_user_id,
+          created_by_name = EXCLUDED.created_by_name,
+          updated_at = now()
+        RETURNING *
+      `,
+      [parsed.data.workDate, routeCode, parsed.data.routeName, parsed.data.dockPosition, req.user.id, req.user.name]
+    );
+    await writeAuditLog({
+      userId: req.user.id,
+      action: "DAILY_DOCK_ASSIGNMENT_UPSERT",
+      meta: { workDate: parsed.data.workDate, routeCode, dockPosition: parsed.data.dockPosition }
+    });
+    return res.status(201).json(result.rows[0]);
+  }
+);
+
+descentsRouter.delete(
+  "/dock-assignments/:id",
+  authRequired,
+  requireScreenAccess("descents"),
+  requireRole(["admin", "supervisor"]),
+  async (req: AuthenticatedRequest, res) => {
+    const result = await pool.query(`DELETE FROM daily_dock_assignments WHERE id = $1 RETURNING *`, [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ message: "Registro de doca nao encontrado." });
+    await writeAuditLog({ userId: req.user?.id, action: "DAILY_DOCK_ASSIGNMENT_DELETE", meta: { id: req.params.id } });
+    return res.status(204).send();
+  }
+);
 
 descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descents"), async (req, res) => {
   const parsed = closingReportSchema.safeParse(req.query);
