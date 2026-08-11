@@ -10,12 +10,19 @@ type Props = {
 
 export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [zoomMax, setZoomMax] = useState(1);
 
   function signalDetected() {
     try {
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextConstructor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextConstructor) return;
+      const audioContext = new AudioContextConstructor();
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
       oscillator.type = "sine";
@@ -35,14 +42,34 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
     if (!open) return;
     if (!videoRef.current) return;
 
-    const hints = new Map<DecodeHintType, any>();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]);
+    const hints = new Map<DecodeHintType, unknown>();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.ITF,
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E
+    ]);
     hints.set(DecodeHintType.TRY_HARDER, true);
 
-    const codeReader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 120 });
+    const codeReader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 45, delayBetweenScanSuccess: 300 });
     let controls: IScannerControls | null = null;
     let permissionStream: MediaStream | null = null;
     let active = true;
+    let detectorFrame = 0;
+
+    function finishDetection(rawValue: string) {
+      if (!active) return;
+      const value = rawValue.trim();
+      if (!value) return;
+      active = false;
+      signalDetected();
+      onDetected(value);
+      controls?.stop();
+      onClose();
+    }
 
     async function start() {
       setLoading(true);
@@ -82,33 +109,64 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
             video: rearCamera?.deviceId
               ? {
                   deviceId: { exact: rearCamera.deviceId },
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 }
+                  width: { ideal: 2560 },
+                  height: { ideal: 1440 }
                 }
-              : { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+              : { facingMode: { ideal: "environment" }, width: { ideal: 2560 }, height: { ideal: 1440 } }
           },
           videoRef.current!,
           (result, err) => {
           if (result && active) {
-            active = false;
-            const value = result.getText().trim();
-            if (value) {
-              signalDetected();
-              onDetected(value);
-            }
-            controls?.stop();
-            onClose();
+            finishDetection(result.getText());
           }
           if (err && !(err instanceof NotFoundException)) {
             setError("Falha ao ler codigo. Tente aproximar melhor a camera.");
           }
         });
-      } catch (err: any) {
-        if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
+
+        const videoTrack = (videoRef.current?.srcObject as MediaStream | null)?.getVideoTracks()[0] || null;
+        cameraTrackRef.current = videoTrack;
+        if (videoTrack) {
+          const capabilities = videoTrack.getCapabilities() as MediaTrackCapabilities & {
+            torch?: boolean;
+            zoom?: { min: number; max: number; step?: number };
+            focusMode?: string[];
+          };
+          setTorchAvailable(Boolean(capabilities.torch));
+          if (capabilities.zoom) {
+            setZoom(capabilities.zoom.min);
+            setZoomMax(capabilities.zoom.max);
+          }
+          const advanced: MediaTrackConstraintSet[] = [];
+          if (capabilities.focusMode?.includes("continuous")) advanced.push({ focusMode: "continuous" } as MediaTrackConstraintSet);
+          if (advanced.length) await videoTrack.applyConstraints({ advanced });
+        }
+
+        type NativeBarcode = { rawValue: string };
+        type NativeDetector = { detect: (source: HTMLVideoElement) => Promise<NativeBarcode[]> };
+        type NativeDetectorConstructor = new (options: { formats: string[] }) => NativeDetector;
+        const NativeBarcodeDetector = (window as Window & { BarcodeDetector?: NativeDetectorConstructor }).BarcodeDetector;
+        if (NativeBarcodeDetector && videoRef.current) {
+          const detector = new NativeBarcodeDetector({ formats: ["code_128", "code_39", "ean_13", "ean_8", "itf", "upc_a", "upc_e"] });
+          const detectNative = async () => {
+            if (!active || !videoRef.current) return;
+            try {
+              const found = await detector.detect(videoRef.current);
+              if (found[0]?.rawValue) finishDetection(found[0].rawValue);
+            } catch {
+              // ZXing continua como fallback quando o detector nativo falha.
+            }
+            if (active) detectorFrame = requestAnimationFrame(detectNative);
+          };
+          detectorFrame = requestAnimationFrame(detectNative);
+        }
+      } catch (err: unknown) {
+        const errorName = err instanceof DOMException ? err.name : "";
+        if (errorName === "NotAllowedError" || errorName === "SecurityError") {
           setError("Permissao da camera negada. Libere a camera no navegador e tente novamente.");
           return;
         }
-        if (err?.name === "NotFoundError" || err?.name === "OverconstrainedError") {
+        if (errorName === "NotFoundError" || errorName === "OverconstrainedError") {
           setError("Nenhuma camera compativel encontrada no dispositivo.");
           return;
         }
@@ -122,12 +180,35 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
 
     return () => {
       active = false;
+      cancelAnimationFrame(detectorFrame);
       permissionStream?.getTracks().forEach((t) => t.stop());
+      cameraTrackRef.current = null;
       controls?.stop();
     };
   }, [open, onClose, onDetected]);
 
   if (!open) return null;
+
+  async function toggleTorch() {
+    const track = cameraTrackRef.current;
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorchOn(next);
+    } catch {
+      setError("A lanterna nao pode ser ativada neste aparelho.");
+    }
+  }
+
+  async function changeZoom(value: number) {
+    setZoom(value);
+    try {
+      await cameraTrackRef.current?.applyConstraints({ advanced: [{ zoom: value } as MediaTrackConstraintSet] });
+    } catch {
+      // Alguns navegadores exibem zoom nas capacidades, mas recusam o ajuste manual.
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
@@ -139,8 +220,12 @@ export function BarcodeScannerModal({ open, onClose, onDetected }: Props) {
           </button>
         </div>
         <video ref={videoRef} className="w-full rounded-xl bg-black" autoPlay muted playsInline />
+        <div className="flex flex-wrap items-center gap-3">
+          {torchAvailable && <button type="button" onClick={toggleTorch} className={`rounded-lg border px-3 py-2 text-sm font-semibold ${torchOn ? "bg-amber-400 text-slate-900" : "bg-white"}`}>{torchOn ? "Desligar lanterna" : "Ligar lanterna"}</button>}
+          {zoomMax > 1 && <label className="flex flex-1 items-center gap-2 text-sm"><span>Zoom</span><input className="w-full" type="range" min="1" max={zoomMax} step="0.1" value={zoom} onChange={(e) => changeZoom(Number(e.target.value))} /></label>}
+        </div>
         {loading && <p className="text-sm text-slate-500">Iniciando camera...</p>}
-        {!loading && !error && <p className="text-sm text-slate-500">Aponte para o codigo de barras do pedido.</p>}
+        {!loading && !error && <p className="text-sm text-slate-500">Centralize o codigo, mantenha o celular firme e ajuste o zoom se a impressao estiver fraca.</p>}
         {error && <p className="text-sm text-red-700">{error}</p>}
       </div>
     </div>
