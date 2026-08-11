@@ -62,7 +62,9 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
         AND i.rejection_report->>'type' = 'BASE'
       ORDER BY i.imported_at DESC
       LIMIT 1
-    )`
+    )`,
+    `COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'`,
+    `COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`
   ];
 
   if (query.order) {
@@ -294,6 +296,8 @@ descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("desce
         WHERE c.source_import_id = i.id
           AND c.route IS NOT NULL
           AND TRIM(c.route) <> ''
+          AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
+          AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
           AND c.base_date = (
             $1::date + CASE EXTRACT(ISODOW FROM $1::date)::int
               WHEN 5 THEN 3
