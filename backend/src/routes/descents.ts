@@ -286,7 +286,10 @@ descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("desce
         ORDER BY imported_at DESC
         LIMIT 1
       ), routes AS (
-        SELECT TRIM(c.route) AS route_code, COUNT(*)::int AS orders_count
+        SELECT
+          TRIM(c.route) AS route_code,
+          COUNT(*)::int AS orders_count,
+          MIN(NULLIF(TRIM(c.description), '')) AS route_description
         FROM order_catalog c, latest_base i
         WHERE c.source_import_id = i.id
           AND c.route IS NOT NULL
@@ -304,7 +307,8 @@ descentsRouter.get("/dock-assignments", authRequired, requireScreenAccess("desce
         d.id,
         $1::date AS work_date,
         r.route_code,
-        COALESCE(d.route_name, r.route_code) AS route_name,
+        COALESCE(NULLIF(d.route_name, d.route_code), r.route_description, r.route_code) AS route_name,
+        r.route_description,
         d.dock_position,
         COALESCE(d.created_by_name, '') AS created_by_name,
         d.created_at,

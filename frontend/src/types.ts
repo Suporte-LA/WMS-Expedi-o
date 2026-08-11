@@ -61,6 +61,7 @@ export type DailyDockAssignment = {
   work_date: string;
   route_code: string;
   route_name: string;
+  route_description?: string | null;
   dock_position?: "frente" | "tras" | null;
   created_by_name: string;
   created_at?: string | null;
