@@ -239,8 +239,29 @@ export function DescentReportsPage({ user: currentUser }: { user: User }) {
                 {[...routeProgress].sort((a, b) => b.pending_orders - a.pending_orders).map((item) => <tr key={item.route} className={`border-b ${item.scanned_orders === 0 ? "bg-amber-50" : ""}`}><td className="p-2 font-semibold">{item.route}</td><td>{item.expected_orders}</td><td>{item.scanned_orders}</td><td className={item.pending_orders ? "font-bold text-red-700" : "text-emerald-700"}>{item.pending_orders}</td><td>{item.completion_percentage}%</td><td>{item.last_scan_at ? new Date(item.last_scan_at).toLocaleTimeString("pt-BR") : "Nao iniciada"}</td></tr>)}
               </tbody></table>
             </div>
-            <div className="overflow-auto">
+            <div>
               <div className="flex items-center justify-between mb-2"><h3 className="font-semibold">Pedidos nao bipados</h3><span className="text-sm text-slate-600">{closingItems.length} pedidos</span></div>
+              <div className="space-y-3 md:hidden">
+                {closingItems.map((item) => (
+                  <article key={item.order_number} className="rounded-2xl border border-slate-300 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pedido</p><p className="text-2xl font-black text-slate-900">{item.order_number}</p></div>
+                      {(currentUser.role === "admin" || currentUser.role === "supervisor") && <button type="button" disabled={classifyingOrder === item.order_number} onClick={() => classifyAsFrozen(item.order_number)} className="min-h-11 min-w-16 rounded-xl bg-cyan-700 px-4 py-2 text-base font-black text-white disabled:opacity-50">{classifyingOrder === item.order_number ? "..." : "CG"}</button>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-slate-200 py-3 text-sm">
+                      <div><p className="text-xs text-slate-500">Rota</p><p className="text-lg font-bold">{item.route || "-"}</p></div>
+                      <div><p className="text-xs text-slate-500">Lote</p><p className="text-lg font-bold">{item.lot || "-"}</p></div>
+                      <div><p className="text-xs text-slate-500">Volumes</p><p className="font-semibold">{item.volume ?? "-"}</p></div>
+                      <div><p className="text-xs text-slate-500">Peso</p><p className="font-semibold">{item.weight_kg ?? "-"} kg</p></div>
+                      <div><p className="text-xs text-slate-500">Turno</p><p className="font-semibold">{item.operation_date?.slice(0, 10)}</p></div>
+                      <div><p className="text-xs text-slate-500">Entrega</p><p className="font-semibold">{item.delivery_date?.slice(0, 10)}</p></div>
+                    </div>
+                    <div className="pt-3"><p className="text-xs text-slate-500">Descricao</p><p className="break-words text-sm leading-5 text-slate-800">{item.description || "-"}</p></div>
+                  </article>
+                ))}
+                {!closingItems.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{closingCards.pending_orders === 0 ? "Nenhum pedido pendente para os filtros informados." : "Nenhum registro encontrado."}</p>}
+              </div>
+              <div className="hidden overflow-auto md:block">
               <table className="w-full text-sm">
                 <thead><tr className="text-left border-b"><th className="py-2">Pedido</th><th>Data do turno</th><th>Data da entrega</th><th>Rota</th><th>Lote</th><th>Volumes</th><th>Peso</th><th>Descricao</th><th>Operacao</th></tr></thead>
                 <tbody>
@@ -248,6 +269,7 @@ export function DescentReportsPage({ user: currentUser }: { user: User }) {
                   {!closingItems.length && <tr><td className="py-3 text-slate-500" colSpan={9}>{closingCards.pending_orders === 0 ? "Nenhum pedido pendente para os filtros informados." : "Nenhum registro encontrado."}</td></tr>}
                 </tbody>
               </table>
+              </div>
             </div>
             {frozenOrders.length > 0 && (
               <details className="rounded-xl border border-cyan-300 bg-cyan-50 p-3">
