@@ -103,13 +103,13 @@ try {
   $workDate = Get-Date -Format 'yyyy-MM-dd'
   $headers = @{ 'X-EasyLog-Sync-Key' = $syncKey }
   $candidates = Invoke-RestMethod -Uri "$($config.wmsUrl)/api/imports/easylog/candidates?date=$workDate" -Headers $headers -TimeoutSec 60
-  $classifications = New-Object System.Collections.Generic.List[object]
+  $classifications = @()
   $failures = 0
   foreach ($orderNumber in $candidates.orderNumbers) {
-    try { $classifications.Add((Classify-EasyLogOrder ([string]$orderNumber) $session $config $productGroups)) }
+    try { $classifications += ,(Classify-EasyLogOrder ([string]$orderNumber) $session $config $productGroups) }
     catch {
       $failures++
-      $classifications.Add([ordered]@{
+      $classifications += ,([ordered]@{
         orderNumber = [string]$orderNumber; classification = 'unknown'; unreadCount = 0
         dryUnreadCount = 0; frozenUnreadCount = 0; unknownUnreadCount = 0
       })
