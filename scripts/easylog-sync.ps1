@@ -7,6 +7,9 @@ $syncDir = Split-Path -Parent $ConfigPath
 $logPath = Join-Path $syncDir "easylog-sync.log"
 
 function Write-SyncLog([string]$Message) {
+  if ((Test-Path -LiteralPath $logPath) -and (Get-Item -LiteralPath $logPath).Length -gt 1MB) {
+    Get-Content -LiteralPath $logPath -Tail 500 | Set-Content -LiteralPath $logPath -Encoding UTF8
+  }
   Add-Content -LiteralPath $logPath -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message"
 }
 
@@ -47,4 +50,8 @@ try {
 } catch {
   Write-SyncLog "ERRO: $($_.Exception.Message)"
   exit 1
+} finally {
+  if ($tempFile -and (Test-Path -LiteralPath $tempFile)) {
+    Remove-Item -LiteralPath $tempFile -Force
+  }
 }
