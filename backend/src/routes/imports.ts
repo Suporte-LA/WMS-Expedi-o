@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { Router } from "express";
+import { NextFunction, Response, Router } from "express";
 import multer from "multer";
 import { z } from "zod";
 import { pool } from "../db.js";
@@ -14,6 +14,16 @@ const querySchema = z.object({
 });
 
 export const importsRouter = Router();
+
+function baseImportAccess(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const configuredKey = process.env.EASYLOG_SYNC_KEY?.trim();
+  const receivedKey = String(req.headers["x-easylog-sync-key"] || "").trim();
+  if (configuredKey && receivedKey && receivedKey === configuredKey) {
+    (req as AuthenticatedRequest & { easylogAutomation?: boolean }).easylogAutomation = true;
+    return next();
+  }
+  return authRequired(req, res, () => requireScreenAccess("imports")(req, res, next));
+}
 
 async function upsertOrderCatalogRows(
   rows: ReturnType<typeof parseOrderCatalogFile>,
@@ -318,8 +328,7 @@ importsRouter.post(
 
 importsRouter.post(
   "/base",
-  authRequired,
-  requireScreenAccess("imports"),
+  baseImportAccess,
   upload.single("file"),
   async (req: AuthenticatedRequest, res) => {
     if (!req.file) {
@@ -329,6 +338,18 @@ importsRouter.post(
     const lower = req.file.originalname.toLowerCase();
     if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
       return res.status(400).json({ message: "Use apenas arquivo XLSX/XLS para base." });
+    }
+
+    const fileHash = createHash("sha256").update(req.file.buffer).digest("hex");
+    const isAutomation = Boolean((req as AuthenticatedRequest & { easylogAutomation?: boolean }).easylogAutomation);
+    if (isAutomation) {
+      const duplicate = await pool.query(
+        `SELECT id, imported_at FROM imports WHERE file_hash = $1 AND status = 'success' LIMIT 1`,
+        [fileHash]
+      );
+      if (duplicate.rowCount) {
+        return res.status(200).json({ unchanged: true, importId: duplicate.rows[0].id, importedAt: duplicate.rows[0].imported_at });
+      }
     }
 
     const rows = parseOrderCatalogFile({
@@ -348,7 +369,7 @@ importsRouter.post(
     const previousCount = Number(previousBase.rows[0]?.processed_rows || 0);
     const changePercentage = previousCount ? Math.round(((rows.length - previousCount) / previousCount) * 100) : 0;
     const requiresConfirmation = previousCount > 0 && Math.abs(changePercentage) >= 35;
-    if (requiresConfirmation && req.body.confirmLargeChange !== "true") {
+    if (requiresConfirmation && req.body.confirmLargeChange !== "true" && !isAutomation) {
       return res.status(409).json({
         message: `A nova base tem ${rows.length} pedidos (${changePercentage > 0 ? "+" : ""}${changePercentage}% comparado aos ${previousCount} anteriores). Confirme para continuar.`,
         requiresConfirmation: true,
@@ -380,8 +401,8 @@ importsRouter.post(
       `,
       [
         req.file.originalname,
-        createHash("sha256").update(req.file.buffer).digest("hex"),
-        JSON.stringify({ type: "BASE" }),
+        fileHash,
+        JSON.stringify({ type: "BASE", source: isAutomation ? "EASYLOG_AUTO" : "MANUAL" }),
         req.user?.id
       ]
     );
@@ -390,7 +411,7 @@ importsRouter.post(
     await writeAuditLog({
       userId: req.user?.id,
       action: "IMPORT_CREATE",
-      meta: { importId, filename: req.file.originalname, type: "BASE" }
+      meta: { importId, filename: req.file.originalname, type: "BASE", source: isAutomation ? "EASYLOG_AUTO" : "MANUAL" }
     });
 
     const client = await pool.connect();
@@ -410,7 +431,7 @@ importsRouter.post(
             rejection_report = $5::jsonb
           WHERE id = $1
         `,
-        [importId, rows.length, summary.inserted, summary.updated, JSON.stringify({ type: "BASE" })]
+        [importId, rows.length, summary.inserted, summary.updated, JSON.stringify({ type: "BASE", source: isAutomation ? "EASYLOG_AUTO" : "MANUAL" })]
       );
       await client.query("COMMIT");
 
