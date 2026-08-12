@@ -208,13 +208,13 @@ export function DescentReportsPage({ user: currentUser }: { user: User }) {
         {closingCards && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Previstos</p><p className="text-2xl font-bold">{closingCards.expected_orders}</p></div>
-              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">Bipados</p><p className="text-2xl font-bold text-emerald-800">{closingCards.scanned_orders}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Previstos no Seco</p><p className="text-2xl font-bold">{closingCards.expected_orders}</p></div>
+              <div className="rounded-xl bg-emerald-50 p-3"><p className="text-xs text-emerald-700">Bipados no WMS</p><p className="text-2xl font-bold text-emerald-800">{closingCards.scanned_orders}</p></div>
               <div className="rounded-xl bg-red-50 p-3"><p className="text-xs text-red-700">Nao bipados</p><p className="text-2xl font-bold text-red-800">{closingCards.pending_orders}</p></div>
-              <div className="rounded-xl bg-amber-50 p-3"><p className="text-xs text-amber-700">Bipados fora da base</p><p className="text-2xl font-bold text-amber-800">{closingCards.unexpected_orders}</p></div>
+              <div className="rounded-xl bg-amber-50 p-3"><p className="text-xs text-amber-700">Sem correspondencia</p><p className="text-2xl font-bold text-amber-800">{closingCards.unexpected_orders}</p></div>
               <div className="rounded-xl bg-cyan-50 p-3"><p className="text-xs text-cyan-700">Conclusao</p><p className="text-2xl font-bold text-cyan-800">{closingCards.completion_percentage}%</p></div>
             </div>
-            <p className="text-xs text-slate-500">Atualizacao automatica a cada 15 segundos{closingUpdatedAt ? ` — ultima atualizacao: ${closingUpdatedAt}` : ""}. Pedidos fora da base nao reduzem as pendencias previstas.</p>
+            <p className="text-xs text-slate-500">Atualizacao automatica a cada 15 segundos{closingUpdatedAt ? ` — ultima atualizacao: ${closingUpdatedAt}` : ""}. Este painel mostra somente a operacao Seco. A contagem do Empacotamento no EasyLog representa outra etapa.</p>
             {closingBase && (
               <div className={`rounded-xl border p-3 text-sm ${closingExceptions.routes_without_dock ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
                 <strong>Base ativa:</strong> {closingBase.filename}, importada em {new Date(closingBase.imported_at).toLocaleString("pt-BR")}.
@@ -224,7 +224,7 @@ export function DescentReportsPage({ user: currentUser }: { user: User }) {
             {(closingExceptions.unexpected.length > 0 || closingExceptions.duplicates.length > 0) && (
               <div className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
-                  <h3 className="font-semibold text-amber-900">Bipados fora da base ({closingExceptions.unexpected.length})</h3>
+                  <h3 className="font-semibold text-amber-900">Sem correspondencia na base ({closingExceptions.unexpected.length})</h3>
                   <div className="mt-2 max-h-48 overflow-auto text-sm">{closingExceptions.unexpected.map((item) => <p key={item.order_number} className="border-b border-amber-200 py-1"><strong>{item.order_number}</strong> — {item.descended_by_name} — {new Date(item.scanned_at).toLocaleTimeString("pt-BR")}</p>)}</div>
                 </div>
                 <div className="rounded-xl border border-red-300 bg-red-50 p-3">
