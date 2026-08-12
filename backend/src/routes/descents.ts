@@ -66,7 +66,6 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
     `c.base_date = ${deliveryDateSql}`,
     `COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'`,
     `COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`,
-    `COALESCE(c.description, '') NOT ILIKE '%CONGELADO%'`,
     `NOT EXISTS (
       SELECT 1 FROM frozen_order_classifications f
       WHERE f.work_date = $1::date AND f.order_number = c.order_number
@@ -132,7 +131,6 @@ descentsRouter.post(
           )
           AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
           AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
-          AND COALESCE(c.description, '') NOT ILIKE '%CONGELADO%'
         LIMIT 1
       `,
       [normalizedOrder, workDate]
@@ -557,8 +555,7 @@ descentsRouter.get("/closing-report", authRequired, requireScreenAccess("descent
        LEFT JOIN daily_dock_assignments d ON d.work_date = $1::date AND d.route_code = UPPER(TRIM(c.route))
        WHERE c.base_date = ${deliveryDateSql}
          AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
-         AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
-         AND COALESCE(c.description, '') NOT ILIKE '%CONGELADO%'`,
+         AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'`,
       [parsed.data.date]
     ),
     pool.query(
