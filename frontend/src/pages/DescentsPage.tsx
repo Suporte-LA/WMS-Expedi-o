@@ -154,18 +154,6 @@ export function DescentsPage({ user }: { user: User }) {
       setError("Foto do produto e obrigatoria.");
       return;
     }
-    if (!orderInfo) {
-      setResultKind("error");
-      setError("Pedido bloqueado: ele nao pertence a base valida deste turno.");
-      playFeedback("error");
-      return;
-    }
-    if (orderInfo.route && !currentDock) {
-      setResultKind("error");
-      setError(`Pedido bloqueado: a rota ${orderInfo.route} ainda esta sem doca definida.`);
-      playFeedback("error");
-      return;
-    }
     setLoading(true);
     try {
       const result = await submitQueuedOperation("descent", {
@@ -175,7 +163,9 @@ export function DescentsPage({ user }: { user: User }) {
       });
       if (result.status === "sent") {
         setResultKind("success");
-        setMessage(`CONFIRMADO: pedido ${normalizeOrder(orderNumber)} - rota ${orderInfo.route || "sem rota"} - doca ${currentDock?.dock_position === "tras" ? "TRAS" : "FRENTE"}.`);
+        const routeText = orderInfo?.route ? `rota ${orderInfo.route}` : "dados da base pendentes";
+        const dockText = currentDock ? ` - doca ${currentDock.dock_position === "tras" ? "TRAS" : "FRENTE"}` : "";
+        setMessage(`CONFIRMADO: pedido ${normalizeOrder(orderNumber)} - ${routeText}${dockText}.`);
         playFeedback("success");
         await loadRecent();
       } else {
@@ -266,14 +256,14 @@ export function DescentsPage({ user }: { user: User }) {
           <button
             type="submit"
             className="rounded-xl bg-teal-700 text-white px-5 py-2 font-semibold disabled:opacity-50"
-            disabled={loading || !image || !workDate || !orderNumber.trim() || !orderInfo || Boolean(orderInfo.route && !currentDock)}
+            disabled={loading || !image || !workDate || !orderNumber.trim()}
           >
             {loading ? "Salvando..." : "Registrar descida"}
           </button>
           {message && <p className={`rounded-xl border-2 p-4 text-center text-lg font-black ${resultKind === "success" ? "border-emerald-500 bg-emerald-50 text-emerald-800" : "border-amber-500 bg-amber-50 text-amber-900"}`}>{message}</p>}
           {error && <p className="rounded-xl border-2 border-red-500 bg-red-50 p-4 text-center text-lg font-black text-red-800">{error}</p>}
           {!orderInfo && orderNumber && (
-            <p className="text-sm text-amber-700">Pedido sem base cadastrada para lote/peso/volume/rota/descricao.</p>
+            <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Pedido ainda não encontrado na base deste turno. O registro está liberado e os dados serão preenchidos automaticamente após a importação da base.</p>
           )}
           {orderInfo && (
             <p className="text-sm text-slate-600">Dados de base preenchidos automaticamente quando disponiveis.</p>

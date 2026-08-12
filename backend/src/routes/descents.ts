@@ -136,19 +136,6 @@ descentsRouter.post(
       [normalizedOrder, workDate]
     );
     const orderInfo = catalog.rows[0];
-    if (!orderInfo) {
-      return res.status(422).json({ message: "Pedido nao pertence a base valida deste turno." });
-    }
-
-    if (orderInfo.route) {
-      const dock = await pool.query(
-        `SELECT dock_position FROM daily_dock_assignments WHERE work_date = $1::date AND route_code = UPPER(TRIM($2)) LIMIT 1`,
-        [workDate, orderInfo.route]
-      );
-      if (!dock.rowCount) {
-        return res.status(422).json({ message: `Rota ${orderInfo.route} ainda esta sem doca definida pelo supervisor.` });
-      }
-    }
 
     const duplicate = await pool.query(
       `SELECT descended_by_name, created_at FROM descents WHERE order_number = $1 AND work_date = $2::date ORDER BY created_at ASC LIMIT 1`,
