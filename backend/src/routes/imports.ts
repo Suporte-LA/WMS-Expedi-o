@@ -13,6 +13,22 @@ const querySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20)
 });
 
+const easylogCandidatesSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+});
+
+const easylogClassificationSchema = z.object({
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  items: z.array(z.object({
+    orderNumber: z.string().trim().min(1),
+    classification: z.enum(["dry", "frozen", "unknown"]),
+    unreadCount: z.number().int().min(0),
+    dryUnreadCount: z.number().int().min(0),
+    frozenUnreadCount: z.number().int().min(0),
+    unknownUnreadCount: z.number().int().min(0)
+  })).max(2500)
+});
+
 export const importsRouter = Router();
 
 function baseImportAccess(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -24,6 +40,81 @@ function baseImportAccess(req: AuthenticatedRequest, res: Response, next: NextFu
   }
   return authRequired(req, res, () => requireScreenAccess("imports")(req, res, next));
 }
+
+function easylogAutomationRequired(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const configuredKey = process.env.EASYLOG_SYNC_KEY?.trim();
+  const receivedKey = String(req.headers["x-easylog-sync-key"] || "").trim();
+  if (configuredKey && receivedKey === configuredKey) return next();
+  return res.status(401).json({ message: "Chave de sincronizacao invalida." });
+}
+
+importsRouter.get("/easylog/candidates", easylogAutomationRequired, async (req, res) => {
+  const parsed = easylogCandidatesSchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ message: "Data operacional invalida." });
+
+  const result = await pool.query(
+    `SELECT c.order_number
+     FROM order_catalog c
+     WHERE c.base_date = (
+       $1::date + CASE EXTRACT(ISODOW FROM $1::date)::int
+         WHEN 5 THEN 3 WHEN 6 THEN 2 ELSE 1
+       END
+     )
+       AND COALESCE(c.description, '') NOT ILIKE '%PEDIDO PESSOAL%'
+       AND COALESCE(c.description, '') NOT ILIKE '%REDES KA%'
+       AND NOT EXISTS (
+         SELECT 1 FROM descents d
+         WHERE d.work_date = $1::date AND d.order_number = c.order_number
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM frozen_order_classifications f
+         WHERE f.work_date = $1::date AND f.order_number = c.order_number
+       )
+     ORDER BY c.order_number`,
+    [parsed.data.date]
+  );
+  return res.json({ workDate: parsed.data.date, orderNumbers: result.rows.map((row) => row.order_number) });
+});
+
+importsRouter.post("/easylog/classifications", easylogAutomationRequired, async (req, res) => {
+  const parsed = easylogClassificationSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Classificacoes EasyLog invalidas." });
+  const { workDate, items } = parsed.data;
+  if (!items.length) return res.json({ processed: 0, frozen: 0 });
+
+  await pool.query(
+    `WITH data AS (
+       SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
+         order_number text, classification text, unread_count int,
+         dry_unread_count int, frozen_unread_count int, unknown_unread_count int
+       )
+     )
+     INSERT INTO easylog_order_classifications (
+       work_date, order_number, classification, unread_count,
+       dry_unread_count, frozen_unread_count, unknown_unread_count, checked_at
+     )
+     SELECT $2::date, order_number, classification, unread_count,
+            dry_unread_count, frozen_unread_count, unknown_unread_count, now()
+     FROM data
+     ON CONFLICT (work_date, order_number) DO UPDATE SET
+       classification = EXCLUDED.classification,
+       unread_count = EXCLUDED.unread_count,
+       dry_unread_count = EXCLUDED.dry_unread_count,
+       frozen_unread_count = EXCLUDED.frozen_unread_count,
+       unknown_unread_count = EXCLUDED.unknown_unread_count,
+       checked_at = now()`,
+    [JSON.stringify(items.map((item) => ({
+      order_number: item.orderNumber.replace(/\D/g, "") || item.orderNumber,
+      classification: item.classification,
+      unread_count: item.unreadCount,
+      dry_unread_count: item.dryUnreadCount,
+      frozen_unread_count: item.frozenUnreadCount,
+      unknown_unread_count: item.unknownUnreadCount
+    }))), workDate]
+  );
+
+  return res.json({ processed: items.length, frozen: items.filter((item) => item.classification === "frozen").length });
+});
 
 async function upsertOrderCatalogRows(
   rows: ReturnType<typeof parseOrderCatalogFile>,

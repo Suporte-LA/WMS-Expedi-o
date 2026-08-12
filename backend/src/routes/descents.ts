@@ -69,6 +69,12 @@ function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
     `NOT EXISTS (
       SELECT 1 FROM frozen_order_classifications f
       WHERE f.work_date = $1::date AND f.order_number = c.order_number
+    )`,
+    `NOT EXISTS (
+      SELECT 1 FROM easylog_order_classifications e
+      WHERE e.work_date = $1::date
+        AND e.order_number = c.order_number
+        AND e.classification = 'frozen'
     )`
   ];
 
