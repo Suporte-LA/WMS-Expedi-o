@@ -60,6 +60,8 @@ export function TiPage() {
   const [catalog, setCatalog] = useState<Array<any>>([]);
   const [catalogDrafts, setCatalogDrafts] = useState<Record<string, { name: string; operation: string; phone_model: string; tablet_model: string }>>({});
   const [savingCatalogId, setSavingCatalogId] = useState<string | null>(null);
+  const [newSeller, setNewSeller] = useState({ name: "", operation: "", phoneModel: "", tabletModel: "" });
+  const [addingSeller, setAddingSeller] = useState(false);
   const [maintenanceOptions, setMaintenanceOptions] = useState<Array<string>>([]);
   const [deviceType, setDeviceType] = useState<"phone" | "tablet" | "">("");
   const [maintenanceItem, setMaintenanceItem] = useState("");
@@ -349,6 +351,27 @@ export function TiPage() {
     }
   }
 
+  async function addSeller() {
+    setError("");
+    setMessage("");
+    if (!newSeller.name.trim() || !newSeller.operation.trim()) {
+      setError("Preencha o nome do vendedor e a operacao.");
+      return;
+    }
+
+    setAddingSeller(true);
+    try {
+      await api.post("/ti/catalog", newSeller);
+      setNewSeller({ name: "", operation: "", phoneModel: "", tabletModel: "" });
+      setMessage("Vendedor acrescentado com sucesso.");
+      await loadCatalog();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || "Erro ao acrescentar vendedor.");
+    } finally {
+      setAddingSeller(false);
+    }
+  }
+
   useEffect(() => {
     if (activeSection === "controle") {
       loadControl();
@@ -559,6 +582,47 @@ export function TiPage() {
         <div className="workspace-panel min-h-[200px] space-y-3">
           <h3 className="font-semibold">Base de dados</h3>
           <p className="text-sm text-slate-600">Importe a base para preencher nomes e modelos nos formulários.</p>
+          <div className="rounded-xl border bg-slate-50 p-3 space-y-3">
+            <div>
+              <h4 className="font-semibold">Acrescentar vendedor</h4>
+              <p className="text-sm text-slate-600">Nome e operação são obrigatórios. Os modelos podem ser preenchidos depois.</p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+              <input
+                className="border rounded-xl px-3 py-2"
+                placeholder="Nome do vendedor"
+                value={newSeller.name}
+                onChange={(e) => setNewSeller((current) => ({ ...current, name: e.target.value }))}
+              />
+              <input
+                className="border rounded-xl px-3 py-2"
+                placeholder="Operação (ex.: Vendas 1)"
+                list="ti-operations-list"
+                value={newSeller.operation}
+                onChange={(e) => setNewSeller((current) => ({ ...current, operation: e.target.value }))}
+              />
+              <datalist id="ti-operations-list">
+                {Array.from(new Set(catalog.map((row) => String(row.operation || "").trim()).filter(Boolean)))
+                  .sort(sortOperation)
+                  .map((item) => <option key={item} value={item} />)}
+              </datalist>
+              <input
+                className="border rounded-xl px-3 py-2"
+                placeholder="Celular (modelo, opcional)"
+                value={newSeller.phoneModel}
+                onChange={(e) => setNewSeller((current) => ({ ...current, phoneModel: e.target.value }))}
+              />
+              <input
+                className="border rounded-xl px-3 py-2"
+                placeholder="Tablet (modelo, opcional)"
+                value={newSeller.tabletModel}
+                onChange={(e) => setNewSeller((current) => ({ ...current, tabletModel: e.target.value }))}
+              />
+            </div>
+            <button type="button" onClick={addSeller} className={primaryButtonClass()} disabled={addingSeller}>
+              {addingSeller ? "Acrescentando..." : "Acrescentar vendedor"}
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
               id="ti-base-upload"

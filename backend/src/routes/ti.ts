@@ -53,11 +53,13 @@ const catalogUpdateParamsSchema = z.object({
 });
 
 const catalogUpdateBodySchema = z.object({
-  name: z.string().min(1),
-  operation: z.string().min(1),
-  phoneModel: z.string().optional(),
-  tabletModel: z.string().optional()
+  name: z.string().trim().min(1).max(160),
+  operation: z.string().trim().min(1).max(160),
+  phoneModel: z.string().trim().max(160).optional(),
+  tabletModel: z.string().trim().max(160).optional()
 });
+
+const catalogCreateBodySchema = catalogUpdateBodySchema;
 
 const normalizeHeader = (value: string) =>
   value
@@ -471,6 +473,31 @@ tiRouter.get("/catalog/options", authRequired, async (req: AuthenticatedRequest,
     catalog: catalog.rows,
     maintenanceItems: Array.from(maintenanceItems)
   });
+});
+
+tiRouter.post("/catalog", authRequired, async (req: AuthenticatedRequest, res) => {
+  if (!requireTiAccess(req)) return res.status(403).json({ message: "Permissao insuficiente." });
+
+  const parsed = catalogCreateBodySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Informe Nome e Operacao validos." });
+
+  const data = parsed.data;
+  try {
+    const result = await pool.query(
+      `
+        INSERT INTO ti_device_catalog (name, operation, phone_model, tablet_model)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, name, operation, phone_model, tablet_model, created_at, updated_at
+      `,
+      [data.name, data.operation, data.phoneModel || null, data.tabletModel || null]
+    );
+    return res.status(201).json(result.rows[0]);
+  } catch (error: any) {
+    if (error?.code === "23505") {
+      return res.status(409).json({ message: "Este vendedor ja esta cadastrado nessa operacao." });
+    }
+    throw error;
+  }
 });
 
 tiRouter.patch("/catalog/:id", authRequired, async (req: AuthenticatedRequest, res) => {
