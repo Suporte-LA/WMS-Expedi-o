@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 
 type TiSection = "registro" | "controle" | "base" | "historico";
 const TI_SECTION_KEY = "wms:ti:activeSection";
+const MAINTENANCE_OPTIONS = ["pelicula", "capinha", "tablet", "celular"];
 
 function normalizeOperation(value: string) {
   return String(value || "")
@@ -62,7 +63,6 @@ export function TiPage() {
   const [savingCatalogId, setSavingCatalogId] = useState<string | null>(null);
   const [newSeller, setNewSeller] = useState({ name: "", operation: "", phoneModel: "", tabletModel: "" });
   const [addingSeller, setAddingSeller] = useState(false);
-  const [maintenanceOptions, setMaintenanceOptions] = useState<Array<string>>([]);
   const [deviceType, setDeviceType] = useState<"phone" | "tablet" | "">("");
   const [maintenanceItem, setMaintenanceItem] = useState("");
   const [name, setName] = useState("");
@@ -113,7 +113,6 @@ export function TiPage() {
       return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
     });
     setCatalog(rows);
-    setMaintenanceOptions(data.maintenanceItems || []);
     const drafts: Record<string, { name: string; operation: string; phone_model: string; tablet_model: string }> = {};
     for (const row of rows) {
       drafts[row.id] = {
@@ -445,27 +444,36 @@ export function TiPage() {
           <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
             <select className="border rounded-xl px-3 py-2" value={maintenanceItem} onChange={(e) => setMaintenanceItem(e.target.value)}>
               <option value="">Manutencao</option>
-              {maintenanceOptions.map((opt) => (
+              {MAINTENANCE_OPTIONS.map((opt) => (
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
-            <select className="border rounded-xl px-3 py-2" value={operation} onChange={(e) => setOperation(e.target.value)}>
-              <option value="">Operacao</option>
+            <input
+              className="border rounded-xl px-3 py-2"
+              list="ti-register-operations"
+              placeholder="Pesquisar operação"
+              value={operation}
+              onChange={(e) => {
+                setOperation(e.target.value);
+                setName("");
+              }}
+            />
+            <datalist id="ti-register-operations">
               {Array.from(new Set(catalog.map((c) => c.operation).filter(Boolean))).sort(sortOperation).map((op) => (
-                <option key={op} value={op}>{op}</option>
+                <option key={op} value={op} />
               ))}
-            </select>
+            </datalist>
             <select className="border rounded-xl px-3 py-2" value={name} onChange={(e) => setName(e.target.value)}>
               <option value="">Nome</option>
               {catalog
-                .filter((c) => String(c.operation).toLowerCase() === String(operation).toLowerCase())
+                .filter((c) => normalizeOperation(String(c.operation)) === normalizeOperation(operation))
                 .map((c) => c.name)
                 .filter(Boolean)
                 .map((n: string) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
             </select>
-            {["pelicula", "capinha", "aparelho"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) || isDeviceExchange ? (
+            {["pelicula", "capinha"].some((k) => (maintenanceItem || "").toLowerCase().includes(k)) ? (
               <select className="border rounded-xl px-3 py-2" value={deviceType} onChange={(e) => setDeviceType(e.target.value as "phone" | "tablet" | "")}>
                 <option value="">Celular ou Tablet</option>
                 <option value="phone">Celular</option>
