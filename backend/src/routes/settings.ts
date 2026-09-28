@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
 import { authRequired, AuthenticatedRequest, requireRole } from "../middleware/auth.js";
 import { pool } from "../db.js";
@@ -7,7 +7,7 @@ import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
 const ROLES = ["admin", "supervisor", "operator", "conferente"] as const;
 const SCREENS = ["dashboard", "descents", "error-check", "error-reports", "imports", "users", "montagem-sp"] as const;
-const WORKSPACES = ["expedicao", "estoque", "estoque-ti", "ti"] as const;
+import { availableWorkspaces as WORKSPACES } from "../services/availableWorkspaces.js";
 
 type Role = (typeof ROLES)[number];
 type Screen = (typeof SCREENS)[number];
@@ -214,10 +214,11 @@ settingsRouter.put("/access", authRequired, requireRole(["admin"]), async (req: 
     return res.status(400).json({ message: "Payload invalido." });
   }
 
-  await pool.query("BEGIN");
+  const client = await pool.connect();
   try {
+    await client.query("BEGIN");
     for (const item of parsed.data.permissions) {
-      await pool.query(
+      await client.query(
         `
           INSERT INTO role_screen_permissions (role, screen_key, is_enabled, updated_at)
           VALUES ($1::role_type, $2, $3, now())
@@ -227,10 +228,12 @@ settingsRouter.put("/access", authRequired, requireRole(["admin"]), async (req: 
         [item.role, item.screen_key, item.is_enabled]
       );
     }
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
   } catch (error) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw error;
+  } finally {
+    client.release();
   }
 
   await writeAuditLog({
@@ -261,10 +264,10 @@ settingsRouter.get("/workspaces", authRequired, requireRole(["admin"]), async (_
 
   const permissions: Record<string, Record<Workspace, boolean>> = {};
   for (const user of users.rows) {
-    permissions[user.id] = { expedicao: false, estoque: false, "estoque-ti": false, ti: false };
+    permissions[user.id] = { expedicao: false, estoque: false };
   }
   for (const row of permissionsRows.rows) {
-    if (!permissions[row.user_id]) continue;
+    if (!permissions[row.user_id] || !WORKSPACES.includes(row.workspace)) continue;
     permissions[row.user_id][row.workspace as Workspace] = Boolean(row.is_enabled);
   }
 
@@ -278,10 +281,11 @@ settingsRouter.put("/workspaces", authRequired, requireRole(["admin"]), async (r
     return res.status(400).json({ message: "Payload invalido." });
   }
 
-  await pool.query("BEGIN");
+  const client = await pool.connect();
   try {
+    await client.query("BEGIN");
     for (const item of parsed.data.permissions) {
-      await pool.query(
+      await client.query(
         `
           INSERT INTO user_workspace_permissions (user_id, workspace, is_enabled, updated_at)
           VALUES ($1, $2, $3, now())
@@ -291,10 +295,12 @@ settingsRouter.put("/workspaces", authRequired, requireRole(["admin"]), async (r
         [item.user_id, item.workspace, item.is_enabled]
       );
     }
-    await pool.query("COMMIT");
+    await client.query("COMMIT");
   } catch (error) {
-    await pool.query("ROLLBACK");
+    await client.query("ROLLBACK");
     throw error;
+  } finally {
+    client.release();
   }
 
   await writeAuditLog({
@@ -325,9 +331,9 @@ settingsRouter.get("/workspaces/me", authRequired, async (req: AuthenticatedRequ
     [req.user.id]
   );
 
-  const workspaces = rows.rows.map((r) => r.workspace as Workspace);
+  const workspaces = rows.rows.map((r) => r.workspace as Workspace).filter((w) => WORKSPACES.includes(w));
   if (!workspaces.length) {
-    return res.json({ workspaces: [req.user.workspace || "expedicao"] });
+    return res.json({ workspaces: WORKSPACES.includes(req.user.workspace) ? [req.user.workspace] : [] });
   }
 
   return res.json({ workspaces });

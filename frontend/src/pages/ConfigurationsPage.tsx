@@ -21,9 +21,7 @@ const ROLE_LABELS: Record<Role, string> = {
 
 const WORKSPACE_LABELS: Record<Workspace, string> = {
   expedicao: "Expedicao",
-  estoque: "Estoque",
-  "estoque-ti": "Estoque TI",
-  ti: "TI"
+  estoque: "Estoque"
 };
 
 export function ConfigurationsPage({ currentUser }: { currentUser: User }) {
@@ -44,7 +42,7 @@ export function ConfigurationsPage({ currentUser }: { currentUser: User }) {
     try {
       const [accessRes, workspaceRes] = await Promise.all([api.get("/settings/access"), api.get("/settings/workspaces")]);
       setSettings(accessRes.data);
-      setWorkspaceSettings(workspaceRes.data);
+      setWorkspaceSettings({ ...workspaceRes.data, workspaces: workspaceRes.data.workspaces.filter((w: string) => w === "expedicao" || (import.meta.env.DEV && w === "estoque")) });
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao carregar configuracoes.");
     } finally {
@@ -80,7 +78,7 @@ export function ConfigurationsPage({ currentUser }: { currentUser: User }) {
         permissions: {
           ...prev.permissions,
           [userId]: {
-            ...(prev.permissions[userId] || { expedicao: false, estoque: false, "estoque-ti": false, ti: false }),
+            ...(prev.permissions[userId] || { expedicao: false, estoque: false }),
             [workspace]: enabled
           }
         }

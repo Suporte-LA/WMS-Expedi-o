@@ -1,44 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, BarChart, Bar } from "recharts";
 import { api } from "../lib/api";
 
-type CardData = {
-  total_orders: string;
-  total_boxes: string;
-  total_weight: string;
-};
-
-type TrendItem = {
-  work_date: string;
-  orders_count: number;
-  boxes_count: number;
-  weight_kg: number;
-};
-
-type RankingItem = {
-  user_name: string;
-  metric_value: number;
-};
-
-type KpiItem = {
-  id: string;
-  user_name: string;
-  orders_count: number;
-  boxes_count: number;
-  weight_kg: number;
-  work_date: string;
-};
+import type { RankingItem } from "../hooks/useDashboard";
+import { useDashboard } from "../hooks/useDashboard";
+import { queryClient } from "../lib/queryClient";
+import { errorMessage } from "../lib/errorMessage";
+import { PageState } from "../components/PageState";
 
 function isoToday() {
-  return new Date().toISOString().slice(0, 10);
+  return format(new Date(), "yyyy-MM-dd");
 }
 
 function isoDaysAgo(days: number) {
   const date = new Date();
   date.setDate(date.getDate() - days);
-  return date.toISOString().slice(0, 10);
+  return format(date, "yyyy-MM-dd");
 }
 
 function normalizeDateParam(value: string) {
@@ -56,81 +35,44 @@ export function DashboardPage() {
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
 
-  const [cards, setCards] = useState<CardData | null>(null);
-  const [trend, setTrend] = useState<TrendItem[]>([]);
-  const [items, setItems] = useState<KpiItem[]>([]);
-  const [rankingOrders, setRankingOrders] = useState<RankingItem[]>([]);
-  const [rankingBoxes, setRankingBoxes] = useState<RankingItem[]>([]);
-  const [rankingWeight, setRankingWeight] = useState<RankingItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  async function loadData() {
-    setLoading(true);
-    setError("");
-    try {
-      const fromParam = normalizeDateParam(from);
-      const toParam = normalizeDateParam(to);
-      const params = new URLSearchParams({ from: fromParam, to: toParam, page: String(page), pageSize: String(pageSize) });
-      if (user) params.set("user", user);
-      const rankingParams = new URLSearchParams({ from: fromParam, to: toParam });
-      if (user) rankingParams.set("user", user);
-
-      const [kpi, orders, boxes, weight] = await Promise.all([
-        api.get(`/kpi?${params.toString()}`),
-        api.get(`/kpi/ranking?${rankingParams.toString()}&metric=orders`),
-        api.get(`/kpi/ranking?${rankingParams.toString()}&metric=boxes`),
-        api.get(`/kpi/ranking?${rankingParams.toString()}&metric=weight`)
-      ]);
-
-      setCards(kpi.data.cards);
-      setTrend(kpi.data.trend);
-      setItems(kpi.data.items || []);
-      setRankingOrders(orders.data.items || []);
-      setRankingBoxes(boxes.data.items || []);
-      setRankingWeight(weight.data.items || []);
-    } catch (err: any) {
-      setCards(null);
-      setTrend([]);
-      setItems([]);
-      setRankingOrders([]);
-      setRankingBoxes([]);
-      setRankingWeight([]);
-      setError(err?.response?.data?.message || "Erro ao carregar dashboard.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadData();
-  }, [page, pageSize]);
+  const [filters, setFilters] = useState({ from, to, user });
+  const [exportError, setExportError] = useState("");
+  const { kpi, rankings } = useDashboard(filters, page, pageSize);
+  const cards = kpi.data?.cards;
+  const trend = kpi.data?.trend;
+  const items = kpi.data?.items;
+  const rankingOrders = rankings.data?.orders;
+  const rankingBoxes = rankings.data?.boxes;
+  const rankingWeight = rankings.data?.weight;
+  const loading = kpi.isFetching || rankings.isFetching;
+  const queryError = kpi.error || rankings.error;
+  const error = exportError || (queryError ? errorMessage(queryError, "Erro ao carregar dashboard.") : "");
 
   const trendData = useMemo(
     () =>
-      trend.map((item) => ({
+      (trend || []).map((item) => ({
         ...item,
-        label: format(new Date(item.work_date), "dd/MM")
+        label: format(parseISO(item.work_date.slice(0, 10)), "dd/MM")
       })),
     [trend]
   );
 
   const userOptions = useMemo(() => {
     const set = new Set<string>();
-    rankingOrders.forEach((r) => set.add(r.user_name));
+    (rankingOrders || []).forEach((r) => set.add(r.user_name));
     return [...set];
   }, [rankingOrders]);
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => {
+    if (!q) return items || [];
+    return (items || []).filter((i) => {
       return (
         i.user_name.toLowerCase().includes(q) ||
         String(i.orders_count).includes(q) ||
         String(i.boxes_count).includes(q) ||
         String(i.weight_kg).includes(q) ||
-        format(new Date(i.work_date), "dd/MM/yyyy").includes(q)
+        format(parseISO(i.work_date.slice(0, 10)), "dd/MM/yyyy").includes(q)
       );
     });
   }, [items, search]);
@@ -138,7 +80,10 @@ export function DashboardPage() {
   function onFilter(e: FormEvent) {
     e.preventDefault();
     setPage(1);
-    loadData();
+    setExportError("");
+    const next = { from: normalizeDateParam(from), to: normalizeDateParam(to), user };
+    if (JSON.stringify(next) === JSON.stringify(filters)) void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    setFilters(next);
   }
 
   async function exportXlsx() {
@@ -159,8 +104,8 @@ export function DashboardPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err?.response?.data?.message || "Falha ao exportar XLSX.");
+    } catch (err: unknown) {
+      setExportError(errorMessage(err, "Falha ao exportar XLSX."));
     }
   }
 
@@ -177,7 +122,7 @@ export function DashboardPage() {
         </div>
 
         <div className="grid md:grid-cols-5 gap-3">
-          <select className="border rounded-xl px-3 py-2" value={user} onChange={(e) => setUser(e.target.value)}>
+          <select aria-label="Operador" className="border rounded-xl px-3 py-2" value={user} onChange={(e) => setUser(e.target.value)}>
             <option value="">TODOS OS OPERADORES</option>
             {userOptions.map((u) => (
               <option key={u} value={u}>
@@ -186,10 +131,11 @@ export function DashboardPage() {
             ))}
           </select>
 
-          <input className="border rounded-xl px-3 py-2" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <input className="border rounded-xl px-3 py-2" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <input className="border rounded-xl px-3 py-2" type="date" aria-label="Data inicial" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input className="border rounded-xl px-3 py-2" type="date" aria-label="Data final" value={to} onChange={(e) => setTo(e.target.value)} />
           <input
             className="border rounded-xl px-3 py-2"
+            aria-label="Buscar na tabela"
             placeholder="Buscar na tabela"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -198,8 +144,8 @@ export function DashboardPage() {
         </div>
       </form>
 
-      {error && <p className="text-sm text-red-700">{error}</p>}
-      {loading && <p className="text-sm text-slate-500">Carregando...</p>}
+      {error && <PageState error message={error} />}
+      {loading && <PageState />}
 
       <div className="grid md:grid-cols-3 gap-4">
         <Card title="Total Pedidos" value={cards?.total_orders || "0"} />
@@ -257,7 +203,7 @@ export function DashboardPage() {
                 <td>{row.orders_count}</td>
                 <td>{row.boxes_count}</td>
                 <td>{row.weight_kg}</td>
-                <td>{format(new Date(row.work_date), "dd/MM/yyyy")}</td>
+                <td>{format(parseISO(row.work_date.slice(0, 10)), "dd/MM/yyyy")}</td>
               </tr>
             ))}
             {!filteredItems.length && (
@@ -287,9 +233,9 @@ export function DashboardPage() {
       </div>
 
       <div className="grid md:grid-cols-3 gap-4">
-        <RankingChart title="Top Pedidos" data={rankingOrders} />
-        <RankingChart title="Top Caixas" data={rankingBoxes} />
-        <RankingChart title="Top KG" data={rankingWeight} />
+        <RankingChart title="Top Pedidos" data={rankingOrders || []} />
+        <RankingChart title="Top Caixas" data={rankingBoxes || []} />
+        <RankingChart title="Top KG" data={rankingWeight || []} />
       </div>
     </section>
   );

@@ -2,11 +2,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db.js";
 import { authRequired, requireScreenAccess } from "../middleware/auth.js";
-import XLSX from "xlsx";
+import { csvCell } from "../services/csv.js";
 
 const kpiQuerySchema = z.object({
-  from: z.string().min(1),
-  to: z.string().min(1),
+  from: z.string().date(),
+  to: z.string().date(),
   user: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -14,8 +14,8 @@ const kpiQuerySchema = z.object({
 });
 
 const rankingSchema = z.object({
-  from: z.string().min(1),
-  to: z.string().min(1),
+  from: z.string().date(),
+  to: z.string().date(),
   user: z.string().optional(),
   metric: z.enum(["orders", "boxes", "weight"]).default("orders"),
   limit: z.coerce.number().int().min(1).max(100).default(10)
@@ -77,7 +77,7 @@ function combinedCte() {
 
 kpiRouter.get("/", authRequired, requireScreenAccess("dashboard"), async (req, res) => {
   const parsed = kpiQuerySchema.safeParse(req.query);
-  if (!parsed.success) {
+  if (!parsed.success || parsed.data.from > parsed.data.to) {
     return res.status(400).json({ message: "Query invalida." });
   }
 
@@ -145,7 +145,7 @@ kpiRouter.get("/", authRequired, requireScreenAccess("dashboard"), async (req, r
     if (exportType === "csv") {
       const header = "Usuario,Data,Pedidos,Caixas,PesoKG";
       const lines = exportRows.rows.map((r) =>
-        [r.user_name, r.work_date.toISOString().slice(0, 10), r.orders_count, r.boxes_count, r.weight_kg].join(",")
+        [r.user_name, r.work_date.toISOString().slice(0, 10), r.orders_count, r.boxes_count, r.weight_kg].map(csvCell).join(",")
       );
       const csv = [header, ...lines].join("\n");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -161,6 +161,7 @@ kpiRouter.get("/", authRequired, requireScreenAccess("dashboard"), async (req, r
       PesoKG: Number(r.weight_kg)
     }));
 
+    const XLSX = await import("xlsx");
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(worksheetRows);
     XLSX.utils.book_append_sheet(workbook, worksheet, "KPI");
@@ -185,7 +186,7 @@ kpiRouter.get("/", authRequired, requireScreenAccess("dashboard"), async (req, r
 
 kpiRouter.get("/ranking", authRequired, requireScreenAccess("dashboard"), async (req, res) => {
   const parsed = rankingSchema.safeParse(req.query);
-  if (!parsed.success) {
+  if (!parsed.success || parsed.data.from > parsed.data.to) {
     return res.status(400).json({ message: "Query invalida." });
   }
 

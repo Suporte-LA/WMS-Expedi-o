@@ -1,22 +1,22 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { PageState } from "./components/PageState";
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { api } from "./lib/api";
 import { clearAuth, getStoredUser, getToken } from "./lib/auth";
 import { exportPendingOperations, flushOperationalQueue, getPendingOperationCount, onOperationalQueueChange, startOperationalQueueSync } from "./lib/offlineQueue";
 import type { AccessSettings, Role, ScreenKey, User, Workspace } from "./types";
 import { LoginPage } from "./pages/LoginPage";
-import { DashboardPage } from "./pages/DashboardPage";
-import { ImportsPage } from "./pages/ImportsPage";
-import { UsersPage } from "./pages/UsersPage";
-import { DescentsPage } from "./pages/DescentsPage";
-import { DescentReportsPage } from "./pages/DescentReportsPage";
-import { ErrorCheckPage } from "./pages/ErrorCheckPage";
-import { ErrorReportsPage } from "./pages/ErrorReportsPage";
-import { ConfigurationsPage } from "./pages/ConfigurationsPage";
-import { MontagemSpPage } from "./pages/MontagemSpPage";
-import { StockPage } from "./pages/StockPage";
-import { StockTiPage } from "./pages/StockTiPage";
-import { TiPage } from "./pages/TiPage";
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const ImportsPage = lazy(() => import("./pages/ImportsPage").then((m) => ({ default: m.ImportsPage })));
+const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
+const DescentsPage = lazy(() => import("./pages/DescentsPage").then((m) => ({ default: m.DescentsPage })));
+const DescentReportsPage = lazy(() => import("./pages/DescentReportsPage").then((m) => ({ default: m.DescentReportsPage })));
+const ErrorCheckPage = lazy(() => import("./pages/ErrorCheckPage").then((m) => ({ default: m.ErrorCheckPage })));
+const ErrorReportsPage = lazy(() => import("./pages/ErrorReportsPage").then((m) => ({ default: m.ErrorReportsPage })));
+const ConfigurationsPage = lazy(() => import("./pages/ConfigurationsPage").then((m) => ({ default: m.ConfigurationsPage })));
+const MontagemSpPage = lazy(() => import("./pages/MontagemSpPage").then((m) => ({ default: m.MontagemSpPage })));
+const StockPage = import.meta.env.DEV ? lazy(() => import("./pages/StockPage").then((m) => ({ default: m.StockPage }))) : null;
 
 type AppRoute =
   | "/"
@@ -27,10 +27,8 @@ type AppRoute =
   | "/imports"
   | "/users"
   | "/montagem-sp"
-  | "/ti"
   | "/settings"
-  | "/estoque"
-  | "/estoque-ti";
+  | "/estoque";
 
 type NavItem = { to: AppRoute; label: string; screen?: ScreenKey };
 
@@ -49,9 +47,7 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
 ];
 
 const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
-const STOCK_TI_NAV_ITEMS: NavItem[] = [{ to: "/estoque-ti", label: "Estoque TI" }];
-const TI_NAV_ITEMS: NavItem[] = [{ to: "/ti", label: "TI" }];
-const ALL_WORKSPACES: Workspace[] = ["expedicao", "estoque", "estoque-ti", "ti"];
+const ALL_WORKSPACES: Workspace[] = import.meta.env.DEV ? ["expedicao", "estoque"] : ["expedicao"];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -107,12 +103,6 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
   if (workspace === "estoque") {
     return STOCK_NAV_ITEMS;
   }
-  if (workspace === "estoque-ti") {
-    return STOCK_TI_NAV_ITEMS;
-  }
-  if (workspace === "ti") {
-    return TI_NAV_ITEMS;
-  }
 
   const base = EXPEDICAO_NAV_ITEMS.filter((item) => (item.screen ? permissions[role][item.screen] : false));
   if (role === "admin") {
@@ -123,8 +113,6 @@ function buildNav(role: Role, permissions: AccessSettings["permissions"], worksp
 
 function defaultRouteFor(role: Role, permissions: AccessSettings["permissions"], workspace: Workspace): AppRoute {
   if (workspace === "estoque") return "/estoque";
-  if (workspace === "estoque-ti") return "/estoque-ti";
-  if (workspace === "ti") return "/ti";
   const nav = buildNav(role, permissions, workspace);
   if (nav.length) return nav[0].to;
   if (role === "admin") return "/settings";
@@ -141,9 +129,10 @@ function canAccessExpedicaoRoute(role: Role, path: AppRoute, permissions: Access
 function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout: () => void; permissions: AccessSettings["permissions"] }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const userWorkspace: Workspace = ALL_WORKSPACES.includes(user.workspace) ? user.workspace : "expedicao";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(user.role === "admin" ? "expedicao" : user.workspace);
-  const [allowedWorkspaces, setAllowedWorkspaces] = useState<Workspace[]>(user.role === "admin" ? ALL_WORKSPACES : [user.workspace]);
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(user.role === "admin" ? "expedicao" : userWorkspace);
+  const [allowedWorkspaces, setAllowedWorkspaces] = useState<Workspace[]>(user.role === "admin" ? ALL_WORKSPACES : ALL_WORKSPACES.filter((w) => w === user.workspace));
 
   useEffect(() => {
     if (user.role === "admin") {
@@ -155,9 +144,9 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
         const { data } = await api.get("/settings/workspaces/me");
         const list = Array.isArray(data?.workspaces) ? (data.workspaces as Workspace[]) : [];
         const sanitized = list.filter((w) => ALL_WORKSPACES.includes(w));
-        setAllowedWorkspaces(sanitized.length ? sanitized : [user.workspace]);
+        setAllowedWorkspaces(sanitized);
       } catch {
-        setAllowedWorkspaces([user.workspace]);
+        setAllowedWorkspaces(ALL_WORKSPACES.filter((w) => w === user.workspace));
       }
     }
     loadMyWorkspaces();
@@ -167,14 +156,14 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
     if (user.role === "admin") return;
     if (user.role === "supervisor") {
       if (!allowedWorkspaces.includes(activeWorkspace)) {
-        setActiveWorkspace(allowedWorkspaces[0] || user.workspace);
+        setActiveWorkspace(allowedWorkspaces[0] || userWorkspace);
       }
       return;
     }
-    if (activeWorkspace !== user.workspace) {
-      setActiveWorkspace(user.workspace);
+    if (activeWorkspace !== userWorkspace) {
+      setActiveWorkspace(userWorkspace);
     }
-  }, [user.role, user.workspace, activeWorkspace, allowedWorkspaces]);
+  }, [user.role, userWorkspace, activeWorkspace, allowedWorkspaces]);
 
   const nav = useMemo(() => buildNav(user.role, permissions, activeWorkspace), [user.role, permissions, activeWorkspace]);
   const defaultRoute = defaultRouteFor(user.role, permissions, activeWorkspace);
@@ -188,22 +177,12 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
 
   useEffect(() => {
     const inStockPath = location.pathname === "/estoque";
-    const inStockTiPath = location.pathname === "/estoque-ti";
-    const inTiPath = location.pathname === "/ti";
 
     if (activeWorkspace === "estoque" && !inStockPath) {
       navigate("/estoque", { replace: true });
       return;
     }
-    if (activeWorkspace === "estoque-ti" && !inStockTiPath) {
-      navigate("/estoque-ti", { replace: true });
-      return;
-    }
-    if (activeWorkspace === "ti" && !inTiPath) {
-      navigate("/ti", { replace: true });
-      return;
-    }
-    if (activeWorkspace === "expedicao" && (inStockPath || inStockTiPath || inTiPath)) {
+    if (activeWorkspace === "expedicao" && inStockPath) {
       navigate(defaultRouteFor(user.role, permissions, "expedicao"), { replace: true });
     }
   }, [activeWorkspace, location.pathname, navigate, user.role, permissions]);
@@ -235,14 +214,14 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
       navigate("/estoque", { replace: true });
       return;
     }
-    if (storedWorkspace === "estoque-ti" && storedRoute === "/estoque-ti") {
-      navigate("/estoque-ti", { replace: true });
-      return;
-    }
-    if (storedWorkspace === "ti" && storedRoute === "/ti") {
-      navigate("/ti", { replace: true });
-    }
   }, [location.pathname, activeWorkspace, canSwitchWorkspace, workspaceOptions, navigate, permissions, user.role]);
+
+  if (user.role !== "admin" && !ALL_WORKSPACES.includes(user.workspace) && !(user.role === "supervisor" && allowedWorkspaces.length > 0)) {
+    return <main className="p-6 space-y-4">
+      <p>O modulo vinculado ao seu usuario nao esta disponivel neste sistema. Solicite ao administrador a revisao do seu acesso.</p>
+      <button type="button" onClick={onLogout} className="underline">Sair</button>
+    </main>;
+  }
 
   return (
     <div className="min-h-screen">
@@ -276,7 +255,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace} value={workspace}>
-                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : workspace === "estoque-ti" ? "Estoque TI" : "TI"}
+                    Tela: {workspace === "expedicao" ? "Expedicao" : "Estoque"}
                   </option>
                 ))}
               </select>
@@ -289,7 +268,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace} value={workspace}>
-                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : workspace === "estoque-ti" ? "Estoque TI" : "TI"}
+                    Tela: {workspace === "expedicao" ? "Expedicao" : "Estoque"}
                   </option>
                 ))}
               </select>
@@ -330,7 +309,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               >
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace} value={workspace}>
-                    Tela: {workspace === "expedicao" ? "Expedicao" : workspace === "estoque" ? "Estoque" : workspace === "estoque-ti" ? "Estoque TI" : "TI"}
+                    Tela: {workspace === "expedicao" ? "Expedicao" : "Estoque"}
                   </option>
                 ))}
               </select>
@@ -359,9 +338,8 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
         {nav.length === 0 && user.role !== "admin" ? (
           <p className="text-sm text-slate-600">Nenhuma tela liberada para este perfil no momento.</p>
         ) : (
-          <Routes>
-            <Route path="/estoque" element={activeWorkspace === "estoque" ? <StockPage /> : <Navigate to={defaultRoute} replace />} />
-            <Route path="/estoque-ti" element={activeWorkspace === "estoque-ti" ? <StockTiPage user={user} /> : <Navigate to={defaultRoute} replace />} />
+          <RouteErrorBoundary key={location.pathname}><Suspense fallback={<PageState />}><Routes>
+            <Route path="/estoque" element={import.meta.env.DEV && StockPage && activeWorkspace === "estoque" ? <Suspense fallback={<p>Carregando estoque...</p>}><StockPage /></Suspense> : <Navigate to={defaultRoute} replace />} />
             <Route
               path="/"
               element={
@@ -411,14 +389,6 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               }
             />
             <Route
-              path="/ti"
-              element={
-                activeWorkspace === "ti"
-                  ? <TiPage />
-                  : <Navigate to={defaultRoute} replace />
-              }
-            />
-            <Route
               path="/imports"
               element={
                 activeWorkspace === "expedicao" && canAccessExpedicaoRoute(user.role, "/imports", permissions)
@@ -443,7 +413,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
               }
             />
             <Route path="*" element={<Navigate to={defaultRoute} replace />} />
-          </Routes>
+          </Routes></Suspense></RouteErrorBoundary>
         )}
       </main>
     </div>
@@ -457,6 +427,7 @@ export default function App() {
   const [permissions, setPermissions] = useState<AccessSettings["permissions"]>(DEFAULT_ACCESS);
   const [pendingQueueCount, setPendingQueueCount] = useState(0);
   const [queueSyncing, setQueueSyncing] = useState(false);
+  const [queueSyncMessage, setQueueSyncMessage] = useState("");
 
   useEffect(() => {
     startOperationalQueueSync();
@@ -526,10 +497,19 @@ export default function App() {
 
   async function syncPendingQueueNow() {
     setQueueSyncing(true);
+    setQueueSyncMessage("");
     try {
-      await flushOperationalQueue();
+      const result = await flushOperationalQueue();
       const total = await getPendingOperationCount();
       setPendingQueueCount(total);
+      if (result) {
+        const processed = result.sent + result.alreadyRecorded;
+        setQueueSyncMessage(
+          processed > 0
+            ? `${processed} envio(s) resolvido(s). ${total} ainda pendente(s).`
+            : `Nenhum envio concluido. ${result.firstError || "Verifique a conexao e tente novamente."}`
+        );
+      }
     } finally {
       setQueueSyncing(false);
     }
@@ -573,7 +553,8 @@ export default function App() {
           <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div className="text-sm text-amber-900">
               Voce tem <strong>{pendingQueueCount}</strong> envio{pendingQueueCount > 1 ? "s" : ""} pendente{pendingQueueCount > 1 ? "s" : ""}. Eles ficam salvos localmente e serao reenviados automaticamente.
-            </div>
+              </div>
+              {queueSyncMessage && <div className="mt-1 text-xs font-medium text-amber-800">{queueSyncMessage}</div>}
             <div className="flex gap-2">
               <button
                 type="button"

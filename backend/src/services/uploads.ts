@@ -5,6 +5,8 @@ import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
+import { detectImageFormat } from "./imageFormat.js";
+
 const currentFilePath = fileURLToPath(import.meta.url);
 const servicesDir = path.dirname(currentFilePath);
 const backendRootDir = path.resolve(servicesDir, "..", "..");
@@ -20,7 +22,7 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 
 const storage = multer.memoryStorage();
 
-export const imageUpload = multer({ storage });
+export const imageUpload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 30, fieldSize: 64 * 1024 } });
 
 let supabaseClient: SupabaseClient | null = null;
 
@@ -33,23 +35,8 @@ function getSupabaseClient(): SupabaseClient | null {
   return supabaseClient;
 }
 
-function safeExt(fileName: string): string {
-  const ext = path.extname(fileName || "").toLowerCase();
-  if (!ext || ext.length > 10) return ".jpg";
-  return ext;
-}
-
-function contentTypeFromExt(ext: string): string {
-  if (ext === ".png") return "image/png";
-  if (ext === ".webp") return "image/webp";
-  if (ext === ".gif") return "image/gif";
-  if (ext === ".heic") return "image/heic";
-  if (ext === ".jpeg" || ext === ".jpg") return "image/jpeg";
-  return "application/octet-stream";
-}
-
 export async function persistUploadedImage(file: Express.Multer.File, folder: string): Promise<string> {
-  const ext = safeExt(file.originalname);
+  const { ext, contentType } = detectImageFormat(file.buffer);
   const cleanFolder = folder.replace(/[^a-zA-Z0-9-_]/g, "") || "misc";
   const objectName = `${cleanFolder}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}${ext}`;
   const supabase = getSupabaseClient();
@@ -57,7 +44,7 @@ export async function persistUploadedImage(file: Express.Multer.File, folder: st
 
   if (supabase) {
     const { error } = await supabase.storage.from(bucket).upload(objectName, file.buffer, {
-      contentType: file.mimetype || contentTypeFromExt(ext),
+      contentType,
       upsert: false
     });
     if (error) {

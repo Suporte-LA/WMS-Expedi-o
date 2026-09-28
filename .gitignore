@@ -6,3 +6,11 @@ frontend/dist
 .env
 backend/.env
 frontend/.env
+backups/
+
+*.log
+*.tsbuildinfo
+.env.*
+!.env.example
+**/.env.*
+!**/.env.example

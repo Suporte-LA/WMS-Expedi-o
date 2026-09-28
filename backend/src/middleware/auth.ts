@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { SafeUser, UserRole, Workspace } from "../types.js";
 import { pool } from "../db.js";
+import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
 export type AuthenticatedRequest = Request & {
   user?: SafeUser;
@@ -59,31 +60,29 @@ const DEFAULT_SCREEN_ACCESS: Record<UserRole, Record<ScreenKey, boolean>> = {
   }
 };
 
-export function authRequired(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+export async function authRequired(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Token ausente." });
-  }
-
-  const token = authHeader.replace("Bearer ", "").trim();
+  if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ message: "Token ausente." });
+  let payload: TokenPayload;
   try {
-    const payload = jwt.verify(token, config.jwtSecret) as TokenPayload;
-    if (!payload.is_active) {
-      return res.status(403).json({ message: "Usuário desativado." });
-    }
-
-    req.user = {
-      id: payload.sub,
-      name: payload.name,
-      email: payload.email,
-      role: payload.role,
-      is_active: payload.is_active,
-      pen_color: payload.pen_color ?? "",
-      workspace: payload.workspace ?? "expedicao"
-    };
+    payload = jwt.verify(authHeader.slice(7).trim(), config.jwtSecret, { algorithms: ["HS256"] }) as TokenPayload;
+    if (!payload.sub || typeof payload.sub !== "string") throw new Error("Invalid subject");
+  } catch {
+    return res.status(401).json({ message: "Token invalido." });
+  }
+  try {
+    const hasWorkspace = await supportsWorkspaceColumn();
+    const result = await pool.query(
+      `SELECT id, name, email, role, is_active, pen_color, ${hasWorkspace ? "workspace" : "'expedicao'::text AS workspace"} FROM users WHERE id = $1 LIMIT 1`,
+      [payload.sub]
+    );
+    const user = result.rows[0];
+    if (!user) return res.status(401).json({ message: "Sessao invalida." });
+    if (!user.is_active) return res.status(403).json({ message: "Usuario desativado." });
+    req.user = { ...user, pen_color: user.pen_color ?? "", workspace: user.workspace ?? "expedicao" };
     return next();
-  } catch (error) {
-    return res.status(401).json({ message: "Token inválido." });
+  } catch {
+    return res.status(503).json({ message: "Nao foi possivel validar a sessao. Tente novamente." });
   }
 }
 
@@ -130,10 +129,7 @@ export function requireScreenAccess(screen: ScreenKey) {
       }
       return next();
     } catch {
-      if (!fallback) {
-        return res.status(403).json({ message: "Permissao insuficiente." });
-      }
-      return next();
+      return res.status(503).json({ message: "Nao foi possivel validar as permissoes." });
     }
   };
 }

@@ -7,9 +7,11 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint:audit": "eslint src/hooks/useDashboard.ts src/lib/queryClient.ts src/lib/errorMessage.ts src/components/PageState.tsx src/components/RouteErrorBoundary.tsx src/pages/DashboardPage.tsx"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.104.0",
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.3",
     "axios": "^1.13.5",

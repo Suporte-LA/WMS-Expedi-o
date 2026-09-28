@@ -8,6 +8,8 @@ import { authRequired, AuthenticatedRequest } from "../middleware/auth.js";
 import { writeAuditLog } from "../services/audit.js";
 import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
+import { createLoginLimiter } from "../middleware/loginLimit.js";
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
@@ -15,7 +17,7 @@ const loginSchema = z.object({
 
 export const authRouter = Router();
 
-authRouter.post("/login", async (req, res) => {
+authRouter.post("/login", createLoginLimiter(), async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Payload inválido." });

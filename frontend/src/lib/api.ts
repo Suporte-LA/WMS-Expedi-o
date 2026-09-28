@@ -1,3 +1,4 @@
+import { queryClient } from "./queryClient";
 import axios from "axios";
 import { getToken } from "./auth";
 
@@ -22,3 +23,11 @@ export function buildApiUrl(path: string) {
   const cacheVersion = normalized.startsWith("/uploads/") ? "?v=20260811-2" : "";
   return `${apiBaseUrl}${normalized}${cacheVersion}`;
 }
+
+// Invalidate cached reports after successful writes, including offline queue syncs.
+api.interceptors.response.use((response) => {
+  if (["post", "put", "patch", "delete"].includes(response.config.method || "")) {
+    void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+  return response;
+});

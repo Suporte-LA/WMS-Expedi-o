@@ -1,3 +1,4 @@
+import { queryClient } from "./queryClient";
 import type { User } from "../types";
 
 const TOKEN_KEY = "kpi_app_token";
@@ -8,11 +9,13 @@ export function getToken() {
 }
 
 export function setAuth(token: string, user: User) {
+  queryClient.clear();
   localStorage.setItem(TOKEN_KEY, token);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearAuth() {
+  queryClient.clear();
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
 }

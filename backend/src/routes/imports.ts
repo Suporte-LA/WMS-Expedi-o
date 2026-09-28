@@ -7,7 +7,7 @@ import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../midd
 import { writeAuditLog } from "../services/audit.js";
 import { parseKpiFile, parseOrderCatalogFile } from "../services/importParser.js";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1, fields: 30, fieldSize: 64 * 1024 } });
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20)

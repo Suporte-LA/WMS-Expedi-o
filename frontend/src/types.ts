@@ -1,5 +1,5 @@
 export type Role = "admin" | "supervisor" | "operator" | "conferente";
-export type Workspace = "expedicao" | "estoque" | "estoque-ti" | "ti";
+export type Workspace = "expedicao" | "estoque";
 
 export type ScreenKey =
   | "dashboard"

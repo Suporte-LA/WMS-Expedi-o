@@ -66,8 +66,17 @@ export type QueueItem<T extends OperationType = OperationType> = {
   payload: QueuePayloadMap[T];
 };
 
+export type QueueSyncResult = {
+  total: number;
+  sent: number;
+  alreadyRecorded: number;
+  failed: number;
+  remaining: number;
+  firstError?: string;
+};
+
 let syncStarted = false;
-let flushPromise: Promise<void> | null = null;
+let flushPromise: Promise<QueueSyncResult> | null = null;
 const QUEUE_EVENT = "wms:queue-changed";
 
 function notifyQueueChanged() {
@@ -214,8 +223,10 @@ async function sendOperation(item: QueueItem) {
     const payload = item.payload as DescentPayload;
     form.append("orderNumber", payload.orderNumber);
     form.append("workDate", payload.workDate);
+    form.append("queuedAt", item.createdAt);
+    form.append("forceOfflineSync", "true");
     form.append("image", fileFromQueueFile(payload.image));
-    await api.post("/descents", form, { headers: { "Content-Type": "multipart/form-data" } });
+    await api.post("/descents", form, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 });
     return;
   }
 
@@ -291,34 +302,49 @@ export async function submitQueuedOperation<T extends OperationType>(type: T, pa
   }
 }
 
-export async function flushOperationalQueue() {
+export async function flushOperationalQueue(): Promise<QueueSyncResult> {
   if (flushPromise) return flushPromise;
   flushPromise = (async () => {
     const items = (await getAllOperations()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const result: QueueSyncResult = { total: items.length, sent: 0, alreadyRecorded: 0, failed: 0, remaining: items.length };
     for (const item of items) {
       try {
         item.status = "sending";
         await updateOperation(item);
         await sendOperation(item);
         await deleteOperation(item.id);
+        result.sent += 1;
+        result.remaining -= 1;
       } catch (error) {
         const info = extractQueueError(error);
+        if (info.status === 409 && item.type === "descent") {
+          await deleteOperation(item.id);
+          result.alreadyRecorded += 1;
+          result.remaining -= 1;
+          continue;
+        }
         item.status = "pending";
         item.attempts += 1;
         item.lastError = info.message;
         await updateOperation(item);
+        result.failed += 1;
+        result.firstError ||= info.message;
         if (info.status === 401 || info.status === 403) {
           break;
         }
-        if (!info.status || info.status >= 500) {
+        // Um item defeituoso continua salvo para nova tentativa, mas nao deve
+        // bloquear os pedidos seguintes. So interrompemos se o aparelho
+        // realmente estiver sem conexao ou se a requisicao expirar.
+        if (!info.status && /network|timeout|conex|offline/i.test(info.message)) {
           break;
         }
       }
     }
+    return result;
   })();
 
   try {
-    await flushPromise;
+    return await flushPromise;
   } finally {
     flushPromise = null;
   }

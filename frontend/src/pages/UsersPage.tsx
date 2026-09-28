@@ -19,6 +19,8 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [listMode, setListMode] = useState<"active" | "inactive">("active");
 
+  const canManage = (user: User) => currentUser.role === "admin" || !["admin", "supervisor"].includes(user.role);
+
   const canAccessUsers = currentUser.role === "admin" || currentUser.role === "supervisor";
 
   async function loadUsers() {
@@ -86,8 +88,12 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
   }
 
   async function toggleActive(user: User) {
-    await api.patch(`/users/${user.id}`, { is_active: !user.is_active });
-    await loadUsers();
+    try {
+      await api.patch(`/users/${user.id}`, { is_active: !user.is_active });
+      await loadUsers();
+    } catch {
+      setError("Nao foi possivel alterar o status do usuario.");
+    }
   }
 
   async function saveUser(user: User) {
@@ -107,7 +113,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
         name: nextName,
         role: nextRole,
         pen_color: nextColor || user.pen_color,
-        workspace: nextWorkspace || user.workspace
+        ...(nextWorkspace !== user.workspace ? { workspace: nextWorkspace } : {})
       });
       await loadUsers();
     } catch (err: any) {
@@ -138,16 +144,14 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
           onChange={(e) => setPassword(e.target.value)}
         />
         <select className="border rounded-xl px-3 py-2" value={role} onChange={(e) => setRole(e.target.value as Role)}>
-          <option value="admin">admin</option>
-          <option value="supervisor">supervisor</option>
+          <option value="admin" disabled={currentUser.role !== "admin"}>admin</option>
+          <option value="supervisor" disabled={currentUser.role !== "admin"}>supervisor</option>
           <option value="operator">operator</option>
           <option value="conferente">conferente</option>
         </select>
         <select className="border rounded-xl px-3 py-2" value={workspace} onChange={(e) => setWorkspace(e.target.value as Workspace)}>
           <option value="expedicao">Expedicao</option>
-          <option value="estoque">Estoque</option>
-          <option value="estoque-ti">Estoque TI</option>
-          <option value="ti">TI</option>
+          {import.meta.env.DEV && <option value="estoque">Estoque</option>}
         </select>
         <input
           className="border rounded-xl px-3 py-2"
@@ -210,8 +214,8 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                       setRoleDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Role }))
                     }
                   >
-                    <option value="admin">admin</option>
-                    <option value="supervisor">supervisor</option>
+                    <option value="admin" disabled={currentUser.role !== "admin"}>admin</option>
+                    <option value="supervisor" disabled={currentUser.role !== "admin"}>supervisor</option>
                     <option value="operator">operator</option>
                     <option value="conferente">conferente</option>
                   </select>
@@ -231,19 +235,20 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                       setWorkspaceDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Workspace }))
                     }
                   >
+                    {u.workspace !== "expedicao" && !(import.meta.env.DEV && u.workspace === "estoque") && (
+                      <option value={u.workspace} disabled>Modulo indisponivel</option>
+                    )}
                     <option value="expedicao">Expedicao</option>
-                    <option value="estoque">Estoque</option>
-                    <option value="estoque-ti">Estoque TI</option>
-                    <option value="ti">TI</option>
+                    {import.meta.env.DEV && <option value="estoque">Estoque</option>}
                   </select>
                 </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>
                 <td>
                   <div className="flex gap-3 items-center">
-                    <button className="underline" onClick={() => saveUser(u)} disabled={savingUserId === u.id}>
+                    <button className="underline" onClick={() => saveUser(u)} disabled={savingUserId === u.id || !canManage(u)}>
                       {savingUserId === u.id ? "Salvando..." : "Salvar"}
                     </button>
-                    <button className="underline" onClick={() => toggleActive(u)}>
+                    <button className="underline" onClick={() => toggleActive(u)} disabled={!canManage(u) || currentUser.id === u.id}>
                       {u.is_active ? "Desativar" : "Ativar"}
                     </button>
                   </div>

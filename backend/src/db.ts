@@ -7,9 +7,13 @@ function withoutSslModeParam(connectionString: string) {
     .replace(/[?&]$/g, "");
 }
 
+const connectionString = withoutSslModeParam(config.databaseUrl);
+const isLocalDb =
+  connectionString.includes("localhost") ||
+  connectionString.includes("127.0.0.1") ||
+  connectionString.includes("wms_postgres");
+
 export const pool = new Pool({
-  connectionString: withoutSslModeParam(config.databaseUrl),
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString,
+  ...(isLocalDb ? {} : { ssl: { rejectUnauthorized: false } }),
 });

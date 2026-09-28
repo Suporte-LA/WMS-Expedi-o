@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  wms_postgres:
+    image: postgres:15-alpine
+    container_name: wms_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-wms}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no .env}
+      POSTGRES_DB: ${DB_NAME:-wms_expedição}
+    volumes:
+      - wms_pgdata:/var/lib/postgresql/data
+    networks:
+      - wms_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-wms}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  wms_backend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.backend
+    container_name: wms_backend
+    restart: always
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-wms}:${DB_PASSWORD}@wms_postgres:5432/${DB_NAME:-wms_expedição}
+    ports:
+      - "4000:4000"
+    depends_on:
+      wms_postgres:
+        condition: service_healthy
+    volumes:
+      - wms_uploads:/app/uploads
+    networks:
+      - wms_net
+
+  wms_frontend:
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: wms_frontend
+    restart: always
+    env_file:
+      - ../.env
+    ports:
+      - "3003:80"
+    depends_on:
+      - wms_backend
+    networks:
+      - wms_net
+
+volumes:
+  wms_pgdata:
+  wms_uploads:
+
+networks:
+  wms_net:
+    driver: bridge

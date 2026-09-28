@@ -9,7 +9,9 @@ import XLSX from "xlsx";
 const createSchema = z.object({
   orderNumber: z.string().min(1),
   workDate: z.string().optional(),
-  clientRequestId: z.string().min(1).optional()
+  clientRequestId: z.string().min(1).optional(),
+  queuedAt: z.string().datetime().optional(),
+  forceOfflineSync: z.enum(["true"]).optional()
 });
 
 const listSchema = z.object({
@@ -51,6 +53,44 @@ function normalizeOrderNumber(value: string): string {
 
 function saoPauloToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+}
+
+function saoPauloDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(value);
+}
+
+function isRecoverableOfflineOperation(workDate: string, queuedAt?: string): boolean {
+  if (!queuedAt) return false;
+  const created = new Date(queuedAt);
+  if (Number.isNaN(created.getTime()) || saoPauloDate(created) !== workDate) return false;
+  const ageMs = Date.now() - created.getTime();
+  return ageMs >= -5 * 60_000 && ageMs <= 7 * 24 * 60 * 60_000;
+}
+
+function isRecoverableLegacyOfflineOperation(workDate: string, clientRequestId?: string): boolean {
+  if (!clientRequestId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientRequestId)) {
+    return false;
+  }
+  const workTime = Date.parse(`${workDate}T12:00:00Z`);
+  const todayTime = Date.parse(`${saoPauloToday()}T12:00:00Z`);
+  if (Number.isNaN(workTime) || Number.isNaN(todayTime)) return false;
+  const ageMs = todayTime - workTime;
+  return ageMs >= 0 && ageMs <= 7 * 24 * 60 * 60_000;
+}
+
+function isTemporaryAugustRecoveryOperation(workDate: string, clientRequestId?: string): boolean {
+  if (!clientRequestId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientRequestId)) {
+    return false;
+  }
+
+  // Recuperacao emergencial e autoexpiravel da fila local afetada em agosto.
+  // Depois de 02/09 a excecao deixa de funcionar sem depender de novo deploy.
+  const today = saoPauloToday();
+  return today >= "2026-08-31" && today <= "2026-09-02" && workDate >= "2026-08-01" && workDate <= "2026-08-31";
+}
+
+function logQueueSync(result: "existing" | "duplicate" | "saved" | "rejected-date", workDate: string) {
+  console.info("[WMS_QUEUE_SYNC]", { result, workDate });
 }
 
 function buildClosingReportFilters(query: z.infer<typeof closingReportSchema>) {
@@ -108,12 +148,21 @@ descentsRouter.post(
     if (parsed.data.clientRequestId) {
       const existing = await pool.query(`SELECT * FROM descents WHERE client_request_id = $1 LIMIT 1`, [parsed.data.clientRequestId]);
       if (existing.rowCount) {
+        logQueueSync("existing", parsed.data.workDate || saoPauloToday());
         return res.status(200).json(existing.rows[0]);
       }
     }
 
     const workDate = parsed.data.workDate || saoPauloToday();
-    if (workDate !== saoPauloToday() && req.user.role !== "admin" && req.user.role !== "supervisor") {
+    if (
+      workDate !== saoPauloToday() &&
+      req.user.role !== "admin" &&
+      req.user.role !== "supervisor" &&
+      !isRecoverableOfflineOperation(workDate, parsed.data.queuedAt) &&
+      !isRecoverableLegacyOfflineOperation(workDate, parsed.data.clientRequestId) &&
+      !isTemporaryAugustRecoveryOperation(workDate, parsed.data.clientRequestId)
+    ) {
+      logQueueSync("rejected-date", workDate);
       return res.status(422).json({ message: "Operadores so podem registrar pedidos na data de hoje." });
     }
     const normalizedOrder = normalizeOrderNumber(parsed.data.orderNumber);
@@ -142,8 +191,10 @@ descentsRouter.post(
       [normalizedOrder, workDate]
     );
     if (duplicate.rowCount) {
-      return res.status(409).json({
+      logQueueSync("duplicate", workDate);
+      return res.status(200).json({
         message: `Pedido ja bipado por ${duplicate.rows[0].descended_by_name}.`,
+        alreadyRecorded: true,
         duplicate: duplicate.rows[0]
       });
     }
@@ -185,6 +236,10 @@ descentsRouter.post(
         orderInfo?.route ?? null
       ]
     );
+
+    if (parsed.data.clientRequestId) {
+      logQueueSync("saved", workDate);
+    }
 
     await writeAuditLog({
       userId: req.user.id,

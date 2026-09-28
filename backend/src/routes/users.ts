@@ -2,11 +2,13 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { pool } from "../db.js";
-import { authRequired, AuthenticatedRequest, requireScreenAccess } from "../middleware/auth.js";
+import { authRequired, AuthenticatedRequest, requireRole, requireScreenAccess } from "../middleware/auth.js";
 import { writeAuditLog } from "../services/audit.js";
 import { supportsWorkspaceColumn } from "../services/workspaceSupport.js";
 
-const workspaceEnum = z.enum(["expedicao", "estoque", "estoque-ti", "ti"]);
+import { availableWorkspaces } from "../services/availableWorkspaces.js";
+
+const workspaceEnum = z.enum(availableWorkspaces);
 
 const createUserSchema = z.object({
   name: z.string().min(2),
@@ -39,7 +41,7 @@ function buildArchivedEmail(email: string, userId: string) {
 
 export const usersRouter = Router();
 
-usersRouter.get("/", authRequired, requireScreenAccess("users"), async (_req, res) => {
+usersRouter.get("/", authRequired, requireRole(["admin", "supervisor"]), requireScreenAccess("users"), async (_req, res) => {
   const hasWorkspace = await supportsWorkspaceColumn();
   const users = await pool.query(
     hasWorkspace
@@ -62,7 +64,7 @@ usersRouter.get("/", authRequired, requireScreenAccess("users"), async (_req, re
   });
 });
 
-usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: AuthenticatedRequest, res) => {
+usersRouter.post("/", authRequired, requireRole(["admin", "supervisor"]), requireScreenAccess("users"), async (req: AuthenticatedRequest, res) => {
   const parsed = createUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -75,6 +77,9 @@ usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: Au
   }
 
   const { name, email, password, role, pen_color, workspace } = parsed.data;
+  if (req.user?.role !== "admin" && (role === "admin" || role === "supervisor")) {
+    return res.status(403).json({ message: "Somente administradores podem atribuir perfis administrativos." });
+  }
   const hash = await bcrypt.hash(password, 10);
   const hasWorkspace = await supportsWorkspaceColumn();
   let result;
@@ -112,7 +117,7 @@ usersRouter.post("/", authRequired, requireScreenAccess("users"), async (req: Au
   });
 });
 
-usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req: AuthenticatedRequest, res) => {
+usersRouter.patch("/:id", authRequired, requireRole(["admin", "supervisor"]), requireScreenAccess("users"), async (req: AuthenticatedRequest, res) => {
   const parsed = updateUserSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -125,12 +130,20 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
   }
 
   const userId = String(req.params.id);
+  if (!z.string().uuid().safeParse(userId).success) return res.status(400).json({ message: "Usuario invalido." });
   const hasWorkspace = await supportsWorkspaceColumn();
-  const currentResult = await pool.query(`SELECT id, email, is_active FROM users WHERE id = $1 LIMIT 1`, [userId]);
+  const currentResult = await pool.query(`SELECT id, email, is_active, role FROM users WHERE id = $1 LIMIT 1`, [userId]);
   if (!currentResult.rowCount) {
     return res.status(404).json({ message: "Usuario nao encontrado." });
   }
   const currentUserRow = currentResult.rows[0];
+  if (req.user?.role !== "admin" && (
+    ["admin", "supervisor"].includes(currentUserRow.role) ||
+    (parsed.data.role !== undefined && ["admin", "supervisor"].includes(parsed.data.role))
+  )) return res.status(403).json({ message: "Somente administradores podem alterar perfis administrativos." });
+  if (req.user?.id === userId && (parsed.data.is_active === false || (parsed.data.role !== undefined && parsed.data.role !== req.user.role))) {
+    return res.status(400).json({ message: "Nao e permitido desativar ou rebaixar o proprio acesso." });
+  }
   const fields: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
@@ -153,6 +166,22 @@ usersRouter.patch("/:id", authRequired, requireScreenAccess("users"), async (req
     if (parsed.data.is_active === false && currentUserRow.is_active) {
       fields.push(`email = $${idx++}`);
       values.push(buildArchivedEmail(currentUserRow.email, userId));
+    }
+    if (parsed.data.is_active === true && !currentUserRow.is_active && currentUserRow.email?.includes("@archive.local")) {
+      const auditResult = await pool.query(
+        `SELECT meta->>'archivedLogin' AS original_email
+         FROM audit_log
+         WHERE action = 'USER_UPDATE'
+           AND meta->>'updatedUserId' = $1
+           AND meta->>'archivedLogin' IS NOT NULL
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+      if (auditResult.rowCount && auditResult.rows[0].original_email) {
+        fields.push(`email = $${idx++}`);
+        values.push(auditResult.rows[0].original_email);
+      }
     }
   }
   if (parsed.data.password !== undefined) {

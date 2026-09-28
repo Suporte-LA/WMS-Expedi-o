@@ -86,3 +86,32 @@ npm run dev
 
 ## Proximo passo (Fase 2)
 Integrar com WMS/TXT/API para preencher volume/peso/doca automaticamente por pedido.
+
+
+## Separa??o dos m?dulos (28/09/2026)
+
+TI e Estoque TI foram extra?dos para `../Sistema-TI`, fora deste reposit?rio, com manifesto SHA-256. A pasta cont?m o c?digo para iniciar um projeto independente; n?o ? uma aplica??o publicada. As telas, rotas da API e scripts de TI foram removidos do WMS. Migra??es hist?ricas permanecem para compatibilidade dos bancos existentes; nenhum dado foi apagado.
+
+O estoque geral permanece em desenvolvimento: `npm run dev` habilita a tela pelo Vite e a API pelo inicializador `backend/src/dev.ts`. Em produ??o (ou sem NODE_ENV), `/stock` n?o ? registrado; o build de produ??o n?o inclui a tela StockPage. N?o iniciar servidores online com NODE_ENV=development.
+
+Valida??o: `npm run build` e `npm run test:modules -w backend`. As verifica??es de API n?o acessam o banco.
+
+Estas altera??es locais precisam de uma nova publica??o para entrar em vigor no sistema online.
+
+
+## Melhorias da auditoria adaptadas ao WMS (28/09/2026)
+
+- API consulta o usuario atual a cada requisicao autenticada; desativacao e mudanca de perfil passam a valer mesmo com JWT antigo. Falhas de consulta de permissoes retornam 503.
+- Supervisores nao podem criar perfis administrativos, promover usuarios ou alterar contas administrativas. O proprio usuario nao pode se desativar/rebaixar pela API.
+- Login limitado a 20 tentativas com falha por IP a cada 15 minutos, por processo. Para multiplas replicas, substituir o armazenamento local por um compartilhado. Configurar TRUST_PROXY_HOPS somente com a porta da API protegida contra acesso direto.
+- CORS usa CORS_ORIGINS; o frontend padrao continua usando /api na mesma origem. URLs externas de frontend devem ser adicionadas explicitamente.
+- Uploads: imagens ate 10 MiB, planilhas ate 20 MiB; formato das imagens identificado pelo conteudo. HTML/SVG nao aceitos como imagens. Respostas de erro nao expoem SQL ou detalhes internos.
+- Telas carregadas sob demanda, com tratamento de erro e estado de carregamento acessivel. Dashboard com React Query, cache de 30 segundos, cancelamento de consultas antigas e invalidacao apos escritas e troca de sessao. A paginacao nao refaz os rankings dentro da janela de cache.
+- Datas do dashboard preservam o dia operacional, sem recuar um dia pelo fuso horario. CSV protege celulas contra formulas e escapa aspas/separadores.
+- Transacoes das permissoes usam uma conexao dedicada, com rollback e liberacao garantidos.
+- Dependencias atualizadas; SheetJS vem da distribuicao oficial 0.20.3 e csv-parse da serie 7. O npm audit ainda aponta um alerta baixo no esbuild transitivo de desenvolvimento, sem alertas altos/criticos na verificacao realizada.
+- Docker usa Node 22 e npm ci com o lockfile raiz dos workspaces; credenciais e uploads locais ficam fora do contexto de build. CI executa lint do conjunto novo/refatorado, TypeScript, build, testes e auditoria de dependencias altas/criticas.
+
+Verificacao local: `npm run check`. O lint integral legado continua separado (`npm run lint -w frontend`); nao se declara o repositorio inteiro livre de problemas de lint. Testes usam banco simulado e arquivos sinteticos, sem alterar dados reais. A verificacao visual usa respostas locais simuladas. Nao houve publicacao nem migracao de banco nesta alteracao.
+
+Referencias tecnicas: [React Query](https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults), [SheetJS oficial](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/), [Express e proxies](https://expressjs.com/en/guide/behind-proxies/).
