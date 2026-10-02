@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import type { Plugin } from "vite";
 
-// Only emitted for the isolated development build, never for the public build.
-export function stockPwa(): Plugin {
+// Cache is scoped to /estoque; authenticated API responses never enter it.
+export function stockPwa(development = false): Plugin {
   return {
-    name: "stock-development-pwa",
+    name: "stock-pwa",
     apply: "build",
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle)
@@ -24,8 +24,8 @@ export function stockPwa(): Plugin {
         type: "asset",
         fileName: "stock.webmanifest",
         source: JSON.stringify({
-          name: "WMS Estoque · Desenvolvimento",
-          short_name: "Estoque DEV",
+          name: development ? "WMS Estoque · Desenvolvimento" : "WMS Estoque",
+          short_name: development ? "Estoque DEV" : "Estoque",
           lang: "pt-BR",
           start_url: "/estoque",
           scope: "/estoque",

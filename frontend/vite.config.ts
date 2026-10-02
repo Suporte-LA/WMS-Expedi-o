@@ -5,7 +5,7 @@ import { stockPwa } from './stock-pwa'
 
 // https://vite.dev/config/
 export default defineConfig(({mode})=>({
-  plugins: [react(), tailwindcss(), ...(mode === 'stock' ? [stockPwa()] : [])],
+  plugins: [react(), tailwindcss(), stockPwa(mode === 'stock')],
   server: {
     host: '0.0.0.0',
     port: 5173,

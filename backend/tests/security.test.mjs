@@ -50,6 +50,12 @@ after(async () => {
 });
 function headers() { return {Authorization:"Bearer " + jwt.sign({sub:id,role:"admin",is_active:true},process.env.JWT_SECRET),"Content-Type":"application/json"}; }
 
+test('descida ja gravada e reconhecida antes de exigir a foto novamente',async()=>{
+  const query=pool.query;pool.query=async(sql,params)=>sql.includes('FROM descents WHERE client_request_id') ? {rowCount:1,rows:[{id:'saved'}]} : query(sql,params);
+  try {const response=await fetch(base+'/descents',{method:'POST',headers:headers(),body:JSON.stringify({orderNumber:'123',clientRequestId:'00000000-0000-4000-8000-000000000009'})});assert.equal(response.status,200);assert.equal((await response.json()).alreadyRecorded,true);}
+  finally{pool.query=query;}
+});
+
 test("missing and forged tokens are rejected", async () => {
   assert.equal((await fetch(testBase+"/admin")).status,401);
   assert.equal((await fetch(testBase+"/admin",{headers:{Authorization:"Bearer forged"}})).status,401);

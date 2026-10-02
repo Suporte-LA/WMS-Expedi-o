@@ -16,7 +16,7 @@ const ErrorCheckPage = lazy(() => import("./pages/ErrorCheckPage").then((m) => (
 const ErrorReportsPage = lazy(() => import("./pages/ErrorReportsPage").then((m) => ({ default: m.ErrorReportsPage })));
 const ConfigurationsPage = lazy(() => import("./pages/ConfigurationsPage").then((m) => ({ default: m.ConfigurationsPage })));
 const MontagemSpPage = lazy(() => import("./pages/MontagemSpPage").then((m) => ({ default: m.MontagemSpPage })));
-const StockPage = (import.meta.env.DEV || import.meta.env.MODE === "stock") ? lazy(() => import("./pages/StockPage").then((m) => ({ default: m.StockPage }))) : null;
+const StockPage = lazy(() => import("./pages/StockPage").then((m) => ({ default: m.StockPage })));
 
 type AppRoute =
   | "/"
@@ -47,7 +47,7 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
 ];
 
 const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
-const ALL_WORKSPACES: Workspace[] = import.meta.env.MODE === "stock" ? ["estoque"] : import.meta.env.DEV ? ["expedicao", "estoque"] : ["expedicao"];
+const ALL_WORKSPACES: Workspace[] = import.meta.env.MODE === "stock" ? ["estoque"] : ["expedicao", "estoque"];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -135,33 +135,24 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   const [allowedWorkspaces, setAllowedWorkspaces] = useState<Workspace[]>(user.role === "admin" ? ALL_WORKSPACES : ALL_WORKSPACES.filter((w) => w === user.workspace));
 
   useEffect(() => {
-    if (user.role === "admin") {
-      setAllowedWorkspaces(ALL_WORKSPACES);
-      return;
-    }
     async function loadMyWorkspaces() {
       try {
         const { data } = await api.get("/settings/workspaces/me");
         const list = Array.isArray(data?.workspaces) ? (data.workspaces as Workspace[]) : [];
         const sanitized = list.filter((w) => ALL_WORKSPACES.includes(w));
         setAllowedWorkspaces(sanitized);
+        localStorage.setItem(`wms:allowedWorkspaces:${user.id}`,JSON.stringify(sanitized));
       } catch {
-        setAllowedWorkspaces(ALL_WORKSPACES.filter((w) => w === user.workspace));
+        try {const saved=JSON.parse(localStorage.getItem(`wms:allowedWorkspaces:${user.id}`) || 'null');setAllowedWorkspaces(Array.isArray(saved) ? saved.filter((w:Workspace)=>ALL_WORKSPACES.includes(w)) : ALL_WORKSPACES.filter((w)=>w===user.workspace));}
+        catch {setAllowedWorkspaces(ALL_WORKSPACES.filter((w)=>w===user.workspace));}
       }
     }
     loadMyWorkspaces();
   }, [user.id, user.role, user.workspace]);
 
   useEffect(() => {
-    if (user.role === "admin") return;
-    if (user.role === "supervisor") {
-      if (!allowedWorkspaces.includes(activeWorkspace)) {
-        setActiveWorkspace(allowedWorkspaces[0] || userWorkspace);
-      }
-      return;
-    }
-    if (activeWorkspace !== userWorkspace) {
-      setActiveWorkspace(userWorkspace);
+    if (!allowedWorkspaces.includes(activeWorkspace)) {
+      setActiveWorkspace(allowedWorkspaces[0] || userWorkspace);
     }
   }, [user.role, userWorkspace, activeWorkspace, allowedWorkspaces]);
 
@@ -172,8 +163,8 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const canSwitchWorkspace = user.role === "admin" || (user.role === "supervisor" && allowedWorkspaces.length > 1);
-  const workspaceOptions = user.role === "admin" ? ALL_WORKSPACES : allowedWorkspaces;
+  const canSwitchWorkspace = allowedWorkspaces.length > 1;
+  const workspaceOptions = allowedWorkspaces;
 
   useEffect(() => {
     const inStockPath = location.pathname === "/estoque";
@@ -216,7 +207,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
     }
   }, [location.pathname, activeWorkspace, canSwitchWorkspace, workspaceOptions, navigate, permissions, user.role]);
 
-  if (user.role !== "admin" && !ALL_WORKSPACES.includes(user.workspace) && !(user.role === "supervisor" && allowedWorkspaces.length > 0)) {
+  if (!allowedWorkspaces.length) {
     return <main className="p-6 space-y-4">
       <p>O modulo vinculado ao seu usuario nao esta disponivel neste sistema. Solicite ao administrador a revisao do seu acesso.</p>
       <button type="button" onClick={onLogout} className="underline">Sair</button>
@@ -339,7 +330,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
           <p className="text-sm text-slate-600">Nenhuma tela liberada para este perfil no momento.</p>
         ) : (
           <RouteErrorBoundary key={location.pathname}><Suspense fallback={<PageState />}><Routes>
-            <Route path="/estoque" element={(import.meta.env.DEV || import.meta.env.MODE === "stock") && StockPage && activeWorkspace === "estoque" ? <Suspense fallback={<p>Carregando estoque...</p>}><StockPage user={user} /></Suspense> : <Navigate to={defaultRoute} replace />} />
+            <Route path="/estoque" element={allowedWorkspaces.includes('estoque') && activeWorkspace === "estoque" ? <Suspense fallback={<p>Carregando estoque...</p>}><StockPage user={user} /></Suspense> : <Navigate to={defaultRoute} replace />} />
             <Route
               path="/"
               element={

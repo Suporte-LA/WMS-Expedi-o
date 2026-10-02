@@ -4,6 +4,7 @@ import { createHash, randomUUID, randomBytes } from "node:crypto";
 import { parse } from "csv-parse/sync";
 import { planSheets, type Sheets } from "../src/stock/migration.js";
 import { transaction, audit } from "../src/stock/service.js";
+import { validateImportTarget } from '../src/stock/importTarget.js';
 
 const args = process.argv.slice(2);
 const option = (name: string) => {
@@ -65,14 +66,7 @@ if (!adminEmail)
 const { pool } = await import("../src/db.js");
 try {
   const url = new URL(process.env.DATABASE_URL!);
-  if (
-    process.env.NODE_ENV !== "development" ||
-    !["localhost", "127.0.0.1", "stock_db"].includes(url.hostname) ||
-    !/stock_(dev|test)$/.test(url.pathname)
-  )
-    throw new Error(
-      "Migracao restrita ao banco local de desenvolvimento *_stock_dev/test.",
-    );
+  await validateImportTarget(url,plan.fingerprint,option('--confirmar-producao'),option('--backup-file'));
   await transaction(pool, async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(73142026)");
     await c.query(

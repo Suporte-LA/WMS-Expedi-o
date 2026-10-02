@@ -1,6 +1,6 @@
-# Estoque endereçado — ambiente de desenvolvimento
+# Estoque endereçado — WMS
 
-Reconstrução do módulo de estoque do WMS Expedição. **Não publicado em produção.** Usa React/Vite, Express, PostgreSQL e o login existente. A stack sugerida no prompt foi adaptada para evitar um segundo sistema de autenticação. Transações `pg` substituem Prisma; o schema SQL versionado está em `backend/stock-sql`. As tabelas legadas `stock_*` não são alteradas nem importadas automaticamente.
+Reconstrução do módulo de estoque do WMS Expedição. **Disponibilização online em consulta, aguardando a planilha atualizada.** Usa React/Vite, Express, PostgreSQL e o login existente. A stack sugerida no prompt foi adaptada para evitar um segundo sistema de autenticação. Transações `pg` substituem Prisma; o schema SQL versionado está em `backend/stock-sql`. As tabelas legadas `stock_*` não são alteradas nem importadas automaticamente.
 
 ## Executar com Docker
 
@@ -35,7 +35,7 @@ npm run build:stock -w frontend
 npm run preview -w frontend -- --mode stock --outDir dist-stock --host 127.0.0.1 --port 5181
 ```
 
-A API deve estar em `localhost:4000`. O build normal (`npm run build`) exclui estoque; a API só monta `/stock` com `NODE_ENV=development`. As novas migrations não entram no deploy normal. O build `stock` possui apenas Estoque no seletor de módulos.
+A API local deve estar em `localhost:4000`. O build normal inclui Estoque, e o servidor controla a disponibilidade com `STOCK_ENABLED=true` (desativado por padrão). `npm run dev:backend` habilita o módulo local. O build `stock` possui apenas Estoque no seletor de módulos.
 
 ## Operação
 
@@ -52,7 +52,7 @@ Datas de validade são datas sem horário; histórico exibido em `America/Sao_Pa
 
 ## Offline
 
-Entre com conexão e clique **Preparar uso offline**. No build `stock`, aguarde a instalação do service worker; o aplicativo pode ser reaberto em `/estoque` sem rede. Instalação/câmera exigem localhost ou HTTPS em dispositivos móveis. Cadastros de gestão exigem conexão.
+Entre com conexão e clique **Preparar uso offline**. Em builds de produção, aguarde a instalação do service worker; o aplicativo pode ser reaberto em `/estoque` sem rede. Instalação/câmera exigem localhost ou HTTPS em dispositivos móveis. Cadastros de gestão exigem conexão.
 
 Movimentos ficam em IndexedDB por usuário. O saldo exibido offline é uma fotografia, não uma reserva. Ao reconectar, os envios seguem em ordem; o primeiro conflito interrompe os seguintes. Na Fila offline, confira a mensagem e corrija quantidade/destino, tente novamente ou descarte o envio local. Cada operação tem UUID idempotente; perder a resposta não duplica o lançamento. Faça login com o mesmo usuário para sincronizar. Limpar os dados do navegador apaga pendências locais. APIs autenticadas não são armazenadas pelo service worker.
 
@@ -108,3 +108,11 @@ npm run test:stock:e2e -w backend
 ```
 
 Vitest usa schemas temporários no banco indicado. Playwright usa `STOCK_E2E_URL` (padrão `http://127.0.0.1:5181`), cria cadastros e movimentos sintéticos e só aceita localhost; use exclusivamente o banco de teste. Os testes verificam concorrência real no PostgreSQL, rollback, idempotência, migração, permissões, importações e fluxos de navegador/offline. Dados de teste não são enviados à produção.
+
+## Online e carga inicial
+
+URL: https://wms.bemvindoalourencoalimentos.com/estoque. Usa os mesmos logins e permissões do WMS. Na VPS, `STOCK_ENABLED=true` e `STOCK_READ_ONLY=true`: consultas liberadas; cadastros, importações e movimentos via API retornam 423. Administradores liberam o acesso dos demais usuários pelas configurações existentes.
+
+O deploy executa somente migrations do schema `wms_*`, com lock e transação. Não cria demonstrações, não modifica saldos legados e não importa planilhas automaticamente. Mantenha o modo consulta até conferir a carga inicial.
+
+`deploy/backup-wms.sh` gera dump custom do banco `wms_expedicao` e valida seu catálogo. Antes de importar a planilha real: execute o dry-run, confira o relatório, gere backup recente e execute o script de migração com `--apply --admin-email EMAIL_EXISTENTE --confirmar-producao HASH_DO_RELATORIO --backup-file /caminho/absoluto/backup.dump`. O backup deve estar acessível ao processo importador. O destino de produção exige `NODE_ENV=production`, host `wms_postgres`, banco `wms_expedicao` e ambas as flags habilitadas. A carga exige tabelas de estoque vazias; não altera os dados de expedição. Somente após a conferência final, altere `STOCK_READ_ONLY=false` e recrie apenas o backend.

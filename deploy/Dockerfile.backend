@@ -17,5 +17,6 @@ COPY --from=build /app/packages /app/packages
 COPY --from=build /app/backend/package.json ./package.json
 COPY --from=build /app/backend/dist ./dist
 COPY backend/sql ./dist/sql
+COPY backend/stock-sql ./dist/stock-sql
 EXPOSE 4000
-CMD ["sh", "-c", "node dist/scripts/migrate.js && node dist/src/server.js"]
+CMD ["sh", "-c", "node dist/scripts/migrate.js && node dist/scripts/stock/migrate.js && node dist/src/server.js"]

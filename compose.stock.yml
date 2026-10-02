@@ -18,6 +18,7 @@ services:
       dockerfile: deploy/Dockerfile.stock
     environment:
       NODE_ENV: development
+      STOCK_ENABLED: 'true'
       TRUST_PROXY_HOPS: '1'
       DATABASE_URL: postgresql://postgres:${WMS_STOCK_DB_PASSWORD}@stock_db:5432/wms_stock_dev
       JWT_SECRET: ${WMS_STOCK_JWT_SECRET:?Defina WMS_STOCK_JWT_SECRET}

@@ -60,6 +60,7 @@ export type Page<T> = {
 };
 export type Settings = { allow_same_expiry: boolean; strict_ean: boolean };
 export type Bootstrap = {
+  readOnly: boolean;
   settings: Settings;
   streets: { galpao: number; rua: number; last_column_a: number }[];
   operators: { id: string; name: string }[];

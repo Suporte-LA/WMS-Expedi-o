@@ -23,6 +23,7 @@ import {
   normalizarEan,
 } from "../stock/rules.js";
 import { productFromRow, readRows } from "../stock/imports.js";
+import { stockReadOnly } from '../services/availableWorkspaces.js';
 
 export const stockRouter = Router();
 const service = new StockService(pool);
@@ -65,6 +66,10 @@ stockRouter.use(authRequired, async (req: AuthenticatedRequest, res, next) => {
   next();
 });
 
+stockRouter.use((req,res,next)=>{
+  if(stockReadOnly && !['GET','HEAD','OPTIONS'].includes(req.method))return res.status(423).json({message:'Estoque em consulta: aguardando a importacao e conferencia da planilha atualizada.'});
+  next();
+});
 stockRouter.get("/bootstrap", async (req: AuthenticatedRequest, res) => {
   const [settings, streets, operators] = await Promise.all([
     pool.query("SELECT * FROM wms_settings WHERE id=true"),
@@ -74,6 +79,7 @@ stockRouter.get("/bootstrap", async (req: AuthenticatedRequest, res) => {
     ),
   ]);
   res.json({
+    readOnly: stockReadOnly,
     settings: settings.rows[0],
     streets: streets.rows,
     operators: operators.rows,

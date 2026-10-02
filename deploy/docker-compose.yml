@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_USER: ${DB_USER:-wms}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Defina DB_PASSWORD no .env}
-      POSTGRES_DB: ${DB_NAME:-wms_expedição}
+      POSTGRES_DB: ${DB_NAME:-wms_expedicao}
     volumes:
       - wms_pgdata:/var/lib/postgresql/data
     networks:
@@ -28,7 +28,10 @@ services:
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-wms}:${DB_PASSWORD}@wms_postgres:5432/${DB_NAME:-wms_expedição}
+      STOCK_ENABLED: ${STOCK_ENABLED:-false}
+      STOCK_READ_ONLY: ${STOCK_READ_ONLY:-true}
+      UPLOADS_DIR: /app/uploads
+      DATABASE_URL: postgresql://${DB_USER:-wms}:${DB_PASSWORD}@wms_postgres:5432/${DB_NAME:-wms_expedicao}
     ports:
       - "4000:4000"
     depends_on:

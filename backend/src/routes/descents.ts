@@ -55,6 +55,14 @@ function saoPauloToday(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
+function registrarFila(req: any, dados: any, status: number, motivo: string) {
+  const quem = req?.user?.name || req?.user?.id || "?";
+  console.log(
+    `[fila] ${status} ${motivo} | operador=${quem} pedido=${dados?.orderNumber ?? "?"} ` +
+    `workDate=${dados?.workDate ?? "-"} queuedAt=${dados?.queuedAt ?? "-"} id=${dados?.clientRequestId ?? "-"}`
+  );
+}
+
 function saoPauloDate(value: Date): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(value);
 }
@@ -141,16 +149,19 @@ descentsRouter.post(
     if (!req.user) {
       return res.status(401).json({ message: "Nao autenticado." });
     }
-    if (!req.file) {
-      return res.status(400).json({ message: "Foto do produto e obrigatoria." });
-    }
-
     if (parsed.data.clientRequestId) {
       const existing = await pool.query(`SELECT * FROM descents WHERE client_request_id = $1 LIMIT 1`, [parsed.data.clientRequestId]);
       if (existing.rowCount) {
         logQueueSync("existing", parsed.data.workDate || saoPauloToday());
-        return res.status(200).json(existing.rows[0]);
+        registrarFila(req, parsed.data, 200, "ja gravado (clientRequestId)");
+        return res.status(200).json({ ...existing.rows[0], alreadyRecorded: true });
       }
+    }
+
+    // Preserve the incident fix deployed in August: idempotency before photo.
+    if (!req.file) {
+      registrarFila(req, parsed.data, 400, "sem foto");
+      return res.status(400).json({ message: "Foto do produto e obrigatoria." });
     }
 
     const workDate = parsed.data.workDate || saoPauloToday();
@@ -163,6 +174,7 @@ descentsRouter.post(
       !isTemporaryAugustRecoveryOperation(workDate, parsed.data.clientRequestId)
     ) {
       logQueueSync("rejected-date", workDate);
+      registrarFila(req, parsed.data, 422, "data fora da janela de 7 dias");
       return res.status(422).json({ message: "Operadores so podem registrar pedidos na data de hoje." });
     }
     const normalizedOrder = normalizeOrderNumber(parsed.data.orderNumber);
@@ -192,6 +204,7 @@ descentsRouter.post(
     );
     if (duplicate.rowCount) {
       logQueueSync("duplicate", workDate);
+      registrarFila(req, parsed.data, 200, "pedido ja bipado");
       return res.status(200).json({
         message: `Pedido ja bipado por ${duplicate.rows[0].descended_by_name}.`,
         alreadyRecorded: true,
@@ -239,6 +252,7 @@ descentsRouter.post(
 
     if (parsed.data.clientRequestId) {
       logQueueSync("saved", workDate);
+      registrarFila(req, parsed.data, 201, "gravado");
     }
 
     await writeAuditLog({

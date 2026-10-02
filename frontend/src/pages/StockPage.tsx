@@ -53,13 +53,14 @@ export function StockPage({ user }: { user: User }) {
     row: Address;
   }>();
   const [history, setHistory] = useState<Address>();
-  const manager = ["admin", "supervisor"].includes(user.role);
   const bootstrap = useQuery({
     queryKey: ["stock", user.id, "bootstrap"],
     networkMode: "always",
     queryFn: ({ signal }) =>
       stockRead<Bootstrap>(user.id, "/bootstrap", signal),
   });
+  const readOnly = bootstrap.data?.readOnly ?? true;
+  const manager = !readOnly && ["admin", "supervisor"].includes(user.role);
   useEffect(() => {
     let active = true;
     const refresh = () =>
@@ -98,7 +99,7 @@ export function StockPage({ user }: { user: User }) {
     };
   }, [user.id]);
   useEffect(() => {
-    if (import.meta.env.MODE !== "stock" || !("serviceWorker" in navigator))
+    if (import.meta.env.DEV || !("serviceWorker" in navigator))
       return;
     const link = document.createElement("link");
     link.rel = "manifest";
@@ -115,7 +116,7 @@ export function StockPage({ user }: { user: User }) {
   }, []);
   const tabs: [Tab, string][] = [
     ["occupancy", "Ocupação"],
-    ["entry", "Entrada"],
+    ...(!readOnly ? [["entry", "Entrada"]] as [Tab,string][] : []),
     ["search", "Buscar produto"],
     ["movements", "Movimentações"],
     ["dashboard", "Dashboard"],
@@ -146,6 +147,7 @@ export function StockPage({ user }: { user: User }) {
     kind: "SAIDA" | "TRANSFERENCIA" | "AJUSTE_INVENTARIO",
     row: Address,
   ) {
+    if(readOnly){setError('Estoque em consulta. Aguarde a importação e conferência da planilha.');return;}
     if (kind === "AJUSTE_INVENTARIO" && !manager) {
       setError(
         "Inventário disponível apenas para supervisores e administradores.",
@@ -163,8 +165,9 @@ export function StockPage({ user }: { user: User }) {
           <h1>Estoque endereçado</h1>
           <p>Movimentação por posição, rastreabilidade por validade.</p>
         </div>
-        <span className="stock-dev-badge">Em desenvolvimento</span>
+        <span className="stock-dev-badge">{readOnly ? 'Aguardando carga inicial' : import.meta.env.MODE === 'stock' || import.meta.env.DEV ? 'Em desenvolvimento' : 'Estoque online'}</span>
       </header>
+      {bootstrap.data?.readOnly && <Notice message="Aguardando a planilha atualizada do sistema atual. O estoque está disponível para consulta; cadastros e lançamentos serão liberados após a importação e conferência dos dados."/>}
       <div className="stock-layout">
         <nav className="stock-nav" aria-label="Estoque">
           {tabs.map(([key, label]) => (

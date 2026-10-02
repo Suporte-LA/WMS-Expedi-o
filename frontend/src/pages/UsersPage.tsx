@@ -151,7 +151,7 @@ export function UsersPage({ currentUser, defaultWorkspace = "expedicao" }: { cur
         </select>
         <select className="border rounded-xl px-3 py-2" value={workspace} onChange={(e) => setWorkspace(e.target.value as Workspace)}>
           <option value="expedicao">Expedicao</option>
-          {(import.meta.env.DEV || import.meta.env.MODE === "stock") && <option value="estoque">Estoque</option>}
+          {<option value="estoque">Estoque</option>}
         </select>
         <input
           className="border rounded-xl px-3 py-2"
@@ -235,11 +235,11 @@ export function UsersPage({ currentUser, defaultWorkspace = "expedicao" }: { cur
                       setWorkspaceDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Workspace }))
                     }
                   >
-                    {u.workspace !== "expedicao" && !((import.meta.env.DEV || import.meta.env.MODE === "stock") && u.workspace === "estoque") && (
+                    {u.workspace !== "expedicao" && u.workspace !== "estoque" && (
                       <option value={u.workspace} disabled>Modulo indisponivel</option>
                     )}
                     <option value="expedicao">Expedicao</option>
-                    {(import.meta.env.DEV || import.meta.env.MODE === "stock") && <option value="estoque">Estoque</option>}
+                    {<option value="estoque">Estoque</option>}
                   </select>
                 </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>
