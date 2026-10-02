@@ -3,6 +3,10 @@ backend/node_modules
 frontend/node_modules
 backend/dist
 frontend/dist
+frontend/dist-stock
+backend/test-results
+backend/playwright-report
+stock-migration-data/
 .env
 backend/.env
 frontend/.env

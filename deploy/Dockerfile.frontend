@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package.json
 COPY frontend/package.json frontend/package.json
+COPY packages/stock-domain packages/stock-domain
 RUN npm ci --workspace frontend --include-workspace-root=false
 COPY frontend/ frontend/
 ARG VITE_API_URL

@@ -5,7 +5,8 @@
   "description": "KPI app migration from AppSheet",
   "workspaces": [
     "backend",
-    "frontend"
+    "frontend",
+    "packages/stock-domain"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",

@@ -3,13 +3,13 @@ import type { FormEvent } from "react";
 import { api } from "../lib/api";
 import type { Role, User, Workspace } from "../types";
 
-export function UsersPage({ currentUser }: { currentUser: User }) {
+export function UsersPage({ currentUser, defaultWorkspace = "expedicao" }: { currentUser: User; defaultWorkspace?: Workspace }) {
   const [users, setUsers] = useState<User[]>([]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("operator");
-  const [workspace, setWorkspace] = useState<Workspace>("expedicao");
+  const [workspace, setWorkspace] = useState<Workspace>(defaultWorkspace);
   const [penColor, setPenColor] = useState("Blue");
   const [error, setError] = useState("");
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
@@ -73,7 +73,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
       setEmail("");
       setPassword("");
       setRole("operator");
-      setWorkspace("expedicao");
+      setWorkspace(defaultWorkspace);
       setPenColor("Blue");
       await loadUsers();
     } catch (err: any) {
@@ -151,7 +151,7 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
         </select>
         <select className="border rounded-xl px-3 py-2" value={workspace} onChange={(e) => setWorkspace(e.target.value as Workspace)}>
           <option value="expedicao">Expedicao</option>
-          {import.meta.env.DEV && <option value="estoque">Estoque</option>}
+          {(import.meta.env.DEV || import.meta.env.MODE === "stock") && <option value="estoque">Estoque</option>}
         </select>
         <input
           className="border rounded-xl px-3 py-2"
@@ -235,11 +235,11 @@ export function UsersPage({ currentUser }: { currentUser: User }) {
                       setWorkspaceDrafts((prev) => ({ ...prev, [u.id]: e.target.value as Workspace }))
                     }
                   >
-                    {u.workspace !== "expedicao" && !(import.meta.env.DEV && u.workspace === "estoque") && (
+                    {u.workspace !== "expedicao" && !((import.meta.env.DEV || import.meta.env.MODE === "stock") && u.workspace === "estoque") && (
                       <option value={u.workspace} disabled>Modulo indisponivel</option>
                     )}
                     <option value="expedicao">Expedicao</option>
-                    {import.meta.env.DEV && <option value="estoque">Estoque</option>}
+                    {(import.meta.env.DEV || import.meta.env.MODE === "stock") && <option value="estoque">Estoque</option>}
                   </select>
                 </td>
                 <td>{u.is_active ? "ativo" : "inativo"}</td>

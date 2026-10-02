@@ -1,0 +1,35 @@
+# Isolated development only; no production credentials or public ports.
+name: wms-stock-development
+services:
+  stock_db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: wms_stock_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${WMS_STOCK_DB_PASSWORD:?Defina WMS_STOCK_DB_PASSWORD}
+    volumes: [stock_development_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d wms_stock_dev']
+      interval: 3s
+      retries: 20
+  stock_app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.stock
+    environment:
+      NODE_ENV: development
+      TRUST_PROXY_HOPS: '1'
+      DATABASE_URL: postgresql://postgres:${WMS_STOCK_DB_PASSWORD}@stock_db:5432/wms_stock_dev
+      JWT_SECRET: ${WMS_STOCK_JWT_SECRET:?Defina WMS_STOCK_JWT_SECRET}
+      WMS_SEED_PASSWORD: ${WMS_SEED_PASSWORD:?Defina WMS_SEED_PASSWORD}
+      TZ: America/Sao_Paulo
+    depends_on:
+      stock_db: {condition: service_healthy}
+  stock_web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.stock-web
+    ports: ['127.0.0.1:5180:80']
+    depends_on: [stock_app]
+volumes:
+  stock_development_data:

@@ -11,7 +11,11 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed-admin": "tsx scripts/seed-admin.ts",
     "test:modules": "node --test tests/module-availability.test.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "stock:setup": "tsx scripts/stock/setup.ts",
+    "test:stock": "vitest run --config vitest.stock.config.ts",
+    "stock:migrate": "tsx scripts/migrar-sheets.ts",
+    "test:stock:e2e": "playwright test --config playwright.stock.config.ts"
   },
   "keywords": [
     "kpi",
@@ -20,6 +24,7 @@
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
+    "@wms/stock-domain": "*",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "csv-parse": "^7.0.3",
@@ -33,6 +38,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -40,7 +46,8 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^25.3.0",
     "@types/pg": "^8.16.0",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
   }
 }

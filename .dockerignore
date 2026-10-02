@@ -1,5 +1,9 @@
 **/node_modules
 **/dist
+**/dist-stock
+**/test-results
+**/playwright-report
+stock-migration-data
 .git
 **/.env
 **/.env.*

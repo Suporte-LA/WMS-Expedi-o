@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "lint:audit": "eslint src/hooks/useDashboard.ts src/lib/queryClient.ts src/lib/errorMessage.ts src/components/PageState.tsx src/components/RouteErrorBoundary.tsx src/pages/DashboardPage.tsx"
+    "lint:audit": "eslint src/hooks/useDashboard.ts src/lib/queryClient.ts src/lib/errorMessage.ts src/components/PageState.tsx src/components/RouteErrorBoundary.tsx src/pages/DashboardPage.tsx",
+    "build:stock": "tsc -b && vite build --mode stock --outDir dist-stock",
+    "lint:stock": "eslint src/stock src/pages/StockPage.tsx stock-pwa.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.0",
@@ -16,14 +18,17 @@
     "@zxing/library": "^0.21.3",
     "axios": "^1.13.5",
     "date-fns": "^4.1.0",
+    "jsbarcode": "^3.12.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
-    "recharts": "^3.7.0"
+    "recharts": "^3.7.0",
+    "@wms/stock-domain": "*"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@tailwindcss/vite": "^4.2.1",
+    "@types/jsbarcode": "^3.11.4",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

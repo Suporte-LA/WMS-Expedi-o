@@ -42,7 +42,7 @@ export function ConfigurationsPage({ currentUser }: { currentUser: User }) {
     try {
       const [accessRes, workspaceRes] = await Promise.all([api.get("/settings/access"), api.get("/settings/workspaces")]);
       setSettings(accessRes.data);
-      setWorkspaceSettings({ ...workspaceRes.data, workspaces: workspaceRes.data.workspaces.filter((w: string) => w === "expedicao" || (import.meta.env.DEV && w === "estoque")) });
+      setWorkspaceSettings({ ...workspaceRes.data, workspaces: workspaceRes.data.workspaces.filter((w: string) => w === "expedicao" || ((import.meta.env.DEV || import.meta.env.MODE === "stock") && w === "estoque")) });
     } catch (err: any) {
       setError(err?.response?.data?.message || "Erro ao carregar configuracoes.");
     } finally {

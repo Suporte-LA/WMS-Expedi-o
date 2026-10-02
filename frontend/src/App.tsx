@@ -16,7 +16,7 @@ const ErrorCheckPage = lazy(() => import("./pages/ErrorCheckPage").then((m) => (
 const ErrorReportsPage = lazy(() => import("./pages/ErrorReportsPage").then((m) => ({ default: m.ErrorReportsPage })));
 const ConfigurationsPage = lazy(() => import("./pages/ConfigurationsPage").then((m) => ({ default: m.ConfigurationsPage })));
 const MontagemSpPage = lazy(() => import("./pages/MontagemSpPage").then((m) => ({ default: m.MontagemSpPage })));
-const StockPage = import.meta.env.DEV ? lazy(() => import("./pages/StockPage").then((m) => ({ default: m.StockPage }))) : null;
+const StockPage = (import.meta.env.DEV || import.meta.env.MODE === "stock") ? lazy(() => import("./pages/StockPage").then((m) => ({ default: m.StockPage }))) : null;
 
 type AppRoute =
   | "/"
@@ -47,7 +47,7 @@ const EXPEDICAO_NAV_ITEMS: NavItem[] = [
 ];
 
 const STOCK_NAV_ITEMS: NavItem[] = [{ to: "/estoque", label: "Estoque" }];
-const ALL_WORKSPACES: Workspace[] = import.meta.env.DEV ? ["expedicao", "estoque"] : ["expedicao"];
+const ALL_WORKSPACES: Workspace[] = import.meta.env.MODE === "stock" ? ["estoque"] : import.meta.env.DEV ? ["expedicao", "estoque"] : ["expedicao"];
 
 const ROUTE_TO_SCREEN: Partial<Record<AppRoute, ScreenKey>> = {
   "/": "dashboard",
@@ -131,7 +131,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
   const navigate = useNavigate();
   const userWorkspace: Workspace = ALL_WORKSPACES.includes(user.workspace) ? user.workspace : "expedicao";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(user.role === "admin" ? "expedicao" : userWorkspace);
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace>(user.role === "admin" ? (ALL_WORKSPACES.includes("estoque") && (import.meta.env.MODE === "stock" || location.pathname === "/estoque") ? "estoque" : "expedicao") : userWorkspace);
   const [allowedWorkspaces, setAllowedWorkspaces] = useState<Workspace[]>(user.role === "admin" ? ALL_WORKSPACES : ALL_WORKSPACES.filter((w) => w === user.workspace));
 
   useEffect(() => {
@@ -339,7 +339,7 @@ function ProtectedLayout({ user, onLogout, permissions }: { user: User; onLogout
           <p className="text-sm text-slate-600">Nenhuma tela liberada para este perfil no momento.</p>
         ) : (
           <RouteErrorBoundary key={location.pathname}><Suspense fallback={<PageState />}><Routes>
-            <Route path="/estoque" element={import.meta.env.DEV && StockPage && activeWorkspace === "estoque" ? <Suspense fallback={<p>Carregando estoque...</p>}><StockPage /></Suspense> : <Navigate to={defaultRoute} replace />} />
+            <Route path="/estoque" element={(import.meta.env.DEV || import.meta.env.MODE === "stock") && StockPage && activeWorkspace === "estoque" ? <Suspense fallback={<p>Carregando estoque...</p>}><StockPage user={user} /></Suspense> : <Navigate to={defaultRoute} replace />} />
             <Route
               path="/"
               element={

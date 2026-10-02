@@ -11,7 +11,8 @@ const connectionString = withoutSslModeParam(config.databaseUrl);
 const isLocalDb =
   connectionString.includes("localhost") ||
   connectionString.includes("127.0.0.1") ||
-  connectionString.includes("wms_postgres");
+  connectionString.includes("wms_postgres") ||
+  new URL(connectionString).hostname === "stock_db";
 
 export const pool = new Pool({
   connectionString,
